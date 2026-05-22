@@ -37,6 +37,9 @@ def mem():
     import resource
     return resource.getrusage(resource.RUSAGE_SELF).ru_maxrss // 1024
 
+def _progress(_msg: str):
+    pass
+
 from mcp.server.fastmcp import FastMCP
 
 mcp = FastMCP("markitdown-reader")
@@ -51,6 +54,19 @@ MAX_CHARS_RETURN = 400_000  # 直接返回的最大字符数
 # ─────────────────────────────────────────────────────────────────
 # 辅助：持久化目录
 # ─────────────────────────────────────────────────────────────────
+
+def _make_doc_name(file_path: str) -> str:
+    """
+    Generate a unique cache directory name from file path.
+    Format: {stem}_{dir_hash} where dir_hash is MD5 of the parent directory path.
+    This prevents documents with the same filename but different locations
+    (e.g. docs/GBT34657.pdf vs backup/GBT34657.pdf) from sharing cache.
+    """
+    p = Path(file_path)
+    stem = p.stem.replace(" ", "_")[:40]
+    dir_hash = hashlib.md5(str(p.parent).encode()).hexdigest()[:8]
+    return f"{stem}_{dir_hash}"
+
 
 def _get_doc_dir(doc_name: str) -> Path:
     """获取文档专属目录，不存在则创建"""
@@ -131,16 +147,19 @@ def _slice_pdf(src: str, doc_name: str, pages_per_slice: int = SLICE_PAGES) -> l
                 slice_doc.insert_pdf(doc, from_page=i, to_page=end - 1)
                 out_path = slices_dir / f"slice_{i // pages_per_slice:03d}.pdf"
                 slice_doc.save(str(out_path))
-                slices.append({
-                    "id": f"p{i + 1}-{end}",
-                    "path": str(out_path),
-                    "pages": (i + 1, end),
-                    "total": total
-                })
             finally:
                 slice_doc.close()
-        _log.debug(f"  _slice_pdf: done, {len(slices)} slices")
-        return slices
+            slices.append({
+                "id": f"p{i + 1}-{end}",
+                "path": str(out_path),
+                "pages": (i + 1, end),
+                "total": total
+            })
+    index = _load_index(doc_name)
+    index["slices"] = slices
+    _save_index(doc_name, index)
+    _log.debug(f"  _slice_pdf: done, {len(slices)} slices, index saved")
+    return slices
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -197,7 +216,10 @@ def _slice_docx(src: str, doc_name: str, blocks_per_slice: int = SLICE_BLOCKS) -
             "blocks": (i + 1, end),
             "total": len(blocks)
         })
-    _log.debug(f"  _slice_docx: done, {len(slices)} slices, mem={mem()}MB")
+    index = _load_index(doc_name)
+    index["slices"] = slices
+    _save_index(doc_name, index)
+    _log.debug(f"  _slice_docx: done, {len(slices)} slices, index saved, mem={mem()}MB")
     return slices
 
 
@@ -273,10 +295,6 @@ def _docx_table_to_markdown(tbl_elem) -> str:
 
 
 docx_ns = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
-
-
-def _strip_base64_images(text: str) -> str:
-    return re.sub(r"!\[([^\]]*)\]\((data:image/[^)]+)\)", "[图片]", text)
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -399,6 +417,100 @@ def _ocr_small_image(img_path: str) -> str:
 
 
 # ─────────────────────────────────────────────────────────────────
+# 直接读取预存分片文件（不重新切片，O(1) 查找）
+# ─────────────────────────────────────────────────────────────────
+
+def _read_slices_direct(
+    doc_name: str,
+    slice_ids: list[str],
+    is_pdf: bool,
+    extract_images: bool = True,
+) -> dict:
+    """
+    直接读取预存的分片文件，不重新切片。
+    slice_ids 格式：["b1-200", "b201-400", ...]（DOCX）或 ["p1-5", "p6-10", ...]（PDF）
+    分片文件命名：slice_000.docx, slice_001.pdf 等，按顺序索引。
+    """
+    _log.debug(f"  _read_slices_direct: doc={doc_name} slices={slice_ids} is_pdf={is_pdf} mem={mem()}MB")
+    slices_dir = _get_slices_dir(doc_name)
+
+    slice_files = sorted(slices_dir.glob("slice_*.docx" if not is_pdf else "slice_*.pdf"))
+    index = _load_index(doc_name)
+    stored_ids = [s["id"] for s in index.get("slices", [])]
+    id_to_path: dict[str, str] = {}
+    for i, sf in enumerate(slice_files):
+        if i < len(stored_ids):
+            id_to_path[stored_ids[i]] = str(sf)
+        else:
+            if is_pdf:
+                id_to_path[f"p{i*5+1}-{(i+1)*5}"] = str(sf)
+            else:
+                id_to_path[f"b{i*200+1}-{(i+1)*200}"] = str(sf)
+
+    # 只读请求的分片
+    text_parts = []
+    found_ids = []
+    all_images = []
+
+    for sid in slice_ids:
+        if sid not in id_to_path:
+            _log.warning(f"  _read_slices_direct: slice {sid} not found, skipping")
+            continue
+        path = id_to_path[sid]
+        if is_pdf:
+            txt = _read_pdf_text(path)
+        else:
+            txt = _read_docx_text(path)
+        text_parts.append(f"=== [{sid}] ===\n{txt}")
+        found_ids.append(sid)
+        if extract_images:
+            if is_pdf:
+                imgs = _extract_images_from_pdf(path, doc_name)
+            else:
+                imgs = _extract_images_from_docx(path, doc_name)
+            all_images.extend(imgs)
+
+    full_text = "\n\n".join(text_parts)
+    _log.debug(f"  _read_slices_direct: done, {len(full_text)} chars, {len(found_ids)} slices")
+
+    written = False
+    content_path = None
+    if len(full_text) > MAX_CHARS_RETURN:
+        content_path = _get_doc_dir(doc_name) / "content_requested.md"
+        content_path.write_text(full_text, encoding="utf-8")
+        written = True
+
+    if extract_images:
+        ocr_count = 0
+        for img in all_images:
+            if img["size"] < IMAGE_SIZE_THRESHOLD:
+                ocr_text = _ocr_small_image(img["path"])
+                if ocr_text:
+                    img["ocr"] = ocr_text
+                    ocr_count += 1
+
+    progress = []
+    if len(found_ids) > 0:
+        progress.append(f"已读 {len(found_ids)} 片")
+    if all_images:
+        progress.append(f"提取图片 {len(all_images)} 张")
+    if extract_images and any(img.get("ocr") for img in all_images):
+        ocr_n = sum(1 for img in all_images if img.get("ocr"))
+        progress.append(f"OCR {ocr_n} 张")
+
+    return {
+        "text": full_text,
+        "images": all_images,
+        "slices": [{"id": sid} for sid in found_ids],
+        "paired": False,
+        "paired_file": None,
+        "written": written,
+        "content_path": str(content_path) if written else None,
+        "progress": progress,
+    }
+
+
+# ─────────────────────────────────────────────────────────────────
 # 单文档读取（核心逻辑）
 # ─────────────────────────────────────────────────────────────────
 
@@ -454,8 +566,10 @@ def _read_single_document(
     if extract_images:
         _log.debug(f"  _read_single: OCR on {len(all_images)} images")
         ocr_count = 0
-        for img in all_images:
+        for idx, img in enumerate(all_images):
             if img["size"] < IMAGE_SIZE_THRESHOLD:
+                if idx % 20 == 0:
+                    _progress(f"  OCR {idx}/{len(all_images)} ...")
                 ocr_text = _ocr_small_image(img["path"])
                 if ocr_text:
                     img["ocr"] = ocr_text
@@ -469,6 +583,14 @@ def _read_single_document(
         content_path.write_text(full_text, encoding="utf-8")
         written = True
 
+    progress = []
+    progress.append(f"分片 {len(slices)} 片")
+    if all_images:
+        progress.append(f"提取图片 {len(all_images)} 张")
+    if extract_images and any(img.get("ocr") for img in all_images):
+        ocr_n = sum(1 for img in all_images if img.get("ocr"))
+        progress.append(f"OCR {ocr_n} 张")
+
     _log.debug(f"  _read_single: DONE mem={mem()}MB")
     return {
         "text": full_text,
@@ -477,7 +599,8 @@ def _read_single_document(
         "paired": False,
         "paired_file": None,
         "written": written,
-        "content_path": str(content_path) if written else None
+        "content_path": str(content_path) if written else None,
+        "progress": progress,
     }
 
 
@@ -488,9 +611,8 @@ def _read_single_document(
 def _read_paired_documents(
     pdf_path: str, docx_path: str, extract_images: bool = True
 ) -> dict:
-    pdf_name = Path(pdf_path).stem
-    doc_name = pdf_name
-    _log.debug(f"  _read_paired: START pdf={pdf_name} mem={mem()}MB")
+    doc_name = _make_doc_name(pdf_path)
+    _log.debug(f"  _read_paired: START pdf={doc_name} mem={mem()}MB")
 
     _log.debug(f"  _read_paired: slicing PDF")
     pdf_slices = _slice_pdf(pdf_path, doc_name)
@@ -520,9 +642,9 @@ def _read_paired_documents(
     full_text = "\n\n".join(text_parts)
     _log.debug(f"  _read_paired: text done, {len(full_text)} chars, mem={mem()}MB")
 
+    ocr_count = 0
     if extract_images:
         _log.debug(f"  _read_paired: OCR on {len(all_images)} images")
-        ocr_count = 0
         for img in all_images:
             if img["size"] < IMAGE_SIZE_THRESHOLD:
                 ocr_text = _ocr_small_image(img["path"])
@@ -539,6 +661,13 @@ def _read_paired_documents(
         written = True
         _log.debug(f"  _read_paired: content written to {content_path}")
 
+    progress = []
+    progress.append(f"分片 PDF:{len(pdf_slices)} DOCX:{len(docx_slices)}")
+    if all_images:
+        progress.append(f"提取图片 {len(all_images)} 张")
+    if ocr_count > 0:
+        progress.append(f"OCR {ocr_count} 张")
+
     _log.debug(f"  _read_paired: DONE mem={mem()}MB")
     return {
         "text": full_text,
@@ -547,7 +676,8 @@ def _read_paired_documents(
         "paired": True,
         "paired_file": docx_path,
         "written": written,
-        "content_path": str(content_path) if written else None
+        "content_path": str(content_path) if written else None,
+        "progress": progress,
     }
 
 
@@ -580,17 +710,22 @@ def _read_generic_text(path: str) -> str:
 # ─────────────────────────────────────────────────────────────────
 
 @mcp.tool()
-def read_document(file_path: str, fast: bool = False) -> str:
-    _log.debug(f"read_document CALLED file={file_path} fast={fast} mem={mem()}MB")
+def read_document(file_path: str, fast: bool = False, slice_ids: Optional[list[str]] = None) -> str:
+    _log.debug(f"read_document CALLED file={file_path} fast={fast} slice_ids={slice_ids} mem={mem()}MB")
     if not os.path.isfile(file_path):
         return f"[错误] 文件不存在: {file_path}"
 
-    doc_name = Path(file_path).stem.replace(" ", "_")[:50]
+    doc_name = _make_doc_name(file_path)
     paired = _find_paired_file(file_path)
     extract_imgs = not fast
 
     try:
-        if paired is None:
+        if slice_ids is not None:
+            ext = Path(file_path).suffix.lower()
+            is_pdf = ext == ".pdf" or _is_pdf_by_magic(file_path)
+            result = _read_slices_direct(doc_name, slice_ids, is_pdf, extract_imgs)
+            result["paired"] = False
+        elif paired is None:
             result = _read_single_document(file_path, doc_name, extract_images=extract_imgs)
         else:
             ext = Path(file_path).suffix.lower()
@@ -636,7 +771,6 @@ def read_document(file_path: str, fast: bool = False) -> str:
             )
 
     # 结构化状态 JSON（agent 可直接解析）
-    import json
     status = {
         "doc": Path(file_path).name,
         "paired": result["paired"],
@@ -655,9 +789,15 @@ def read_document(file_path: str, fast: bool = False) -> str:
     }
     status_json = json.dumps(status, ensure_ascii=False)
 
+    progress_msgs = result.get("progress", [])
+    progress_line = ""
+    if progress_msgs:
+        progress_line = "⚙️ " + " | ".join(progress_msgs) + "\n"
+
     header = (
         f"[STATUS]\n{status_json}\n[/STATUS]\n\n"
-        f"# {Path(file_path).name}\n"
+        + progress_line
+        + f"# {Path(file_path).name}\n"
         + paired_line
         + f"分片: {len(result['slices'])}片 ({slice_info})\n"
         + f"图片: {img_summary}\n"
@@ -686,7 +826,7 @@ def read_document_pair(pdf_path: str, docx_path: str) -> str:
     if not os.path.isfile(docx_path):
         return f"[错误] DOCX 不存在: {docx_path}"
 
-    doc_name = Path(pdf_path).stem.replace(" ", "_")[:50]
+    doc_name = _make_doc_name(pdf_path)
     try:
         result = _read_paired_documents(pdf_path, docx_path)
     except Exception:
@@ -737,7 +877,7 @@ def extract_images(file_path: str, page_range: str = "") -> str:
     if not os.path.isfile(file_path):
         return f"[错误] 文件不存在: {file_path}"
 
-    doc_name = Path(file_path).stem.replace(" ", "_")[:50]
+    doc_name = _make_doc_name(file_path)
     ext = Path(file_path).suffix.lower()
 
     if ext == ".pdf" or _is_pdf_by_magic(file_path):
@@ -799,7 +939,6 @@ def slice_document(file_path: str, pages_per_slice: int = 5) -> str:
     用于提前了解分片结构，或单独控制分片逻辑。
     返回: JSON 格式分片列表
     """
-    import json
     _log.debug(f"slice_document CALLED file={file_path} mem={mem()}MB")
     if not os.path.isfile(file_path):
         return f'[{{"error": "文件不存在: {file_path}"}}]'
@@ -811,45 +950,47 @@ def slice_document(file_path: str, pages_per_slice: int = 5) -> str:
     try:
         if ext == ".pdf" or _is_pdf_by_magic(file_path):
             import fitz
-            doc = fitz.open(file_path)
-            total = len(doc)
-            slices = []
-            for i in range(0, total, pages_per_slice):
-                end = min(i + pages_per_slice, total)
-                slices.append({
-                    "slice_id": f"p{i+1}-{end}",
-                    "page_range": f"{i+1}-{end}",
-                    "page_count": end - i,
-                    "slice_index": i // pages_per_slice,
-                })
-            return json.dumps({
-                "doc_name": doc_name,
-                "total_pages": total,
-                "slice_count": len(slices),
-                "slices": slices,
-                "paired_file": _find_paired_file(file_path),
-            }, ensure_ascii=False, indent=2)
+            with fitz.open(file_path) as doc:
+                total = len(doc)
+                slices = []
+                for i in range(0, total, pages_per_slice):
+                    end = min(i + pages_per_slice, total)
+                    slices.append({
+                        "slice_id": f"p{i+1}-{end}",
+                        "page_range": f"{i+1}-{end}",
+                        "page_count": end - i,
+                        "slice_index": i // pages_per_slice,
+                    })
+                result_json = {
+                    "doc_name": doc_name,
+                    "total_pages": total,
+                    "slice_count": len(slices),
+                    "slices": slices,
+                    "paired_file": _find_paired_file(file_path),
+                }
+            return json.dumps(result_json, ensure_ascii=False, indent=2)
 
         elif ext in (".docx", ".doc"):
             from docx import Document
-            doc = Document(file_path)
-            blocks = sum(1 for _ in doc.element.body)
-            slices = []
-            for i in range(0, blocks, SLICE_BLOCKS):
-                end = min(i + SLICE_BLOCKS, blocks)
-                slices.append({
-                    "slice_id": f"b{i+1}-{end}",
-                    "block_range": f"{i+1}-{end}",
-                    "block_count": end - i,
-                    "slice_index": i // SLICE_BLOCKS,
-                })
-            return json.dumps({
-                "doc_name": doc_name,
-                "total_blocks": blocks,
-                "slice_count": len(slices),
-                "slices": slices,
-                "paired_file": _find_paired_file(file_path),
-            }, ensure_ascii=False, indent=2)
+            with Document(file_path) as doc:
+                blocks = sum(1 for _ in doc.element.body)
+                slices = []
+                for i in range(0, blocks, SLICE_BLOCKS):
+                    end = min(i + SLICE_BLOCKS, blocks)
+                    slices.append({
+                        "slice_id": f"b{i+1}-{end}",
+                        "block_range": f"{i+1}-{end}",
+                        "block_count": end - i,
+                        "slice_index": i // SLICE_BLOCKS,
+                    })
+                result_json = {
+                    "doc_name": doc_name,
+                    "total_blocks": blocks,
+                    "slice_count": len(slices),
+                    "slices": slices,
+                    "paired_file": _find_paired_file(file_path),
+                }
+            return json.dumps(result_json, ensure_ascii=False, indent=2)
 
         else:
             return f'[{{"error": "不支持分片格式: {ext}"}}]'
