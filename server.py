@@ -37,9 +37,6 @@ def mem():
     import resource
     return resource.getrusage(resource.RUSAGE_SELF).ru_maxrss // 1024
 
-def _progress(_msg: str):
-    pass
-
 from mcp.server.fastmcp import FastMCP
 
 mcp = FastMCP("markitdown-reader")
@@ -176,6 +173,7 @@ def _slice_docx(src: str, doc_name: str, blocks_per_slice: int = SLICE_BLOCKS) -
 
     with zipfile.ZipFile(src, "r") as z:
         doc_xml = z.read("word/document.xml")
+        all_items = {item: z.read(item) for item in z.namelist()}
     tree = etree.fromstring(doc_xml)
     body = tree.find(f"{{{W}}}body")
 
@@ -195,20 +193,18 @@ def _slice_docx(src: str, doc_name: str, blocks_per_slice: int = SLICE_BLOCKS) -
         end = min(i + blocks_per_slice, len(blocks))
         out_path = slices_dir / f"slice_{slice_idx:03d}.docx"
 
-        with zipfile.ZipFile(src, "r") as zin:
-            with zipfile.ZipFile(str(out_path), "w", zipfile.ZIP_DEFLATED) as zout:
-                doc_xml = zin.read("word/document.xml")
-                tree = etree.fromstring(doc_xml)
-                body = tree.find(f"{{{W}}}body")
-                for child in list(body):
-                    body.remove(child)
-                for block in blocks[i:end]:
-                    body.append(copy.deepcopy(block))
-                for item in zin.namelist():
-                    if item == "word/document.xml":
-                        zout.writestr(item, etree.tostring(tree))
-                    else:
-                        zout.writestr(item, zin.read(item))
+        tree = etree.fromstring(doc_xml)
+        body = tree.find(f"{{{W}}}body")
+        for child in list(body):
+            body.remove(child)
+        for block in blocks[i:end]:
+            body.append(copy.deepcopy(block))
+        with zipfile.ZipFile(str(out_path), "w", zipfile.ZIP_DEFLATED) as zout:
+            for item, data in all_items.items():
+                if item == "word/document.xml":
+                    zout.writestr(item, etree.tostring(tree))
+                else:
+                    zout.writestr(item, data)
 
         slices.append({
             "id": f"b{i + 1}-{end}",
@@ -568,8 +564,6 @@ def _read_single_document(
         ocr_count = 0
         for idx, img in enumerate(all_images):
             if img["size"] < IMAGE_SIZE_THRESHOLD:
-                if idx % 20 == 0:
-                    _progress(f"  OCR {idx}/{len(all_images)} ...")
                 ocr_text = _ocr_small_image(img["path"])
                 if ocr_text:
                     img["ocr"] = ocr_text
@@ -943,9 +937,8 @@ def slice_document(file_path: str, pages_per_slice: int = 5) -> str:
     if not os.path.isfile(file_path):
         return f'[{{"error": "文件不存在: {file_path}"}}]'
 
-    p = Path(file_path)
-    ext = p.suffix.lower()
-    doc_name = p.stem.replace(" ", "_")[:50]
+    doc_name = _make_doc_name(file_path)
+    ext = Path(file_path).suffix.lower()
 
     try:
         if ext == ".pdf" or _is_pdf_by_magic(file_path):
@@ -1007,10 +1000,9 @@ def get_document_info(file_path: str) -> str:
     if not os.path.isfile(file_path):
         return f"[错误] 文件不存在: {file_path}"
 
-    p = Path(file_path)
+    doc_name = _make_doc_name(file_path)
     size = os.path.getsize(file_path)
-    doc_name = p.stem.replace(" ", "_")[:50]
-    ext = p.suffix.lower()
+    ext = Path(file_path).suffix.lower()
 
     info = [
         f"文件: {p.name}",
@@ -1076,12 +1068,6 @@ def list_supported_files() -> str:
 # ─────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    import resource
-
-    def mem():
-        r = resource.getrusage(resource.RUSAGE_SELF)
-        return r.ru_maxrss // 1024
-
     _log.debug(f"PID={os.getpid()} STARTING mem={mem()}MB")
     BASE_DIR.mkdir(parents=True, exist_ok=True)
     _log.debug(f"BASE_DIR ready mem={mem()}MB")
