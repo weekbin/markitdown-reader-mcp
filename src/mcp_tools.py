@@ -17,6 +17,7 @@ from mcp.server.fastmcp import FastMCP
 from .constants import BASE_DIR, IMAGE_SIZE_THRESHOLD, SLICE_BLOCKS, SLICE_PAGES
 from .storage import (
     _calculate_content_hash,
+    _delete_cache,
     _get_doc_dir,
     _get_index_path,
     _get_slices_dir,
@@ -555,6 +556,38 @@ def list_cache_dir(doc_name: str = None) -> str:
             "next_steps": ["Use list_cache_dir(doc_name='xxx') for specific document details", "Use get_cached_content() to read cached content"],
         }
         return json.dumps(result, ensure_ascii=False, indent=2)
+
+
+@mcp.tool()
+def delete_cache(doc_name: str) -> str:
+    """
+    删除文档的所有缓存文件（图片、分片、索引、输出）。
+
+    用于强制重新提取文档内容。调用后文档将以全新状态重新处理。
+
+    参数:
+        doc_name: 文档名称（必须精确匹配之前的 doc_name）
+
+    返回:
+        JSON格式结果，包含是否成功删除
+    """
+    try:
+        result = _delete_cache(doc_name)
+        if result:
+            return json.dumps({
+                "success": True,
+                "doc_name": doc_name,
+                "message": f"Cache for {doc_name} deleted successfully"
+            }, ensure_ascii=False)
+        else:
+            return json.dumps({
+                "success": False,
+                "doc_name": doc_name,
+                "error": "Document not found in cache"
+            }, ensure_ascii=False)
+    except Exception as e:
+        _log.exception(f"delete_cache failed for {doc_name}")
+        return json.dumps({"success": False, "error": str(e)}, ensure_ascii=False)
 
 
 @mcp.tool()

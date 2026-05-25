@@ -16,6 +16,7 @@ from src.mcp_tools import (
     list_supported_files,
     list_cache_dir,
     get_cached_content,
+    delete_cache,
     # Update tools
     update_document_markdown,
     update_batch_document_markdown,

@@ -215,3 +215,27 @@ def _save_index_nolock(doc_name: str, index: dict):
     """无锁保存index（调用前需先获取锁）"""
     p = _get_index_path(doc_name)
     p.write_text(json.dumps(index, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _delete_cache(doc_name: str) -> bool:
+    """Delete all cached files for a document. Returns True if deleted, False if not found."""
+    import shutil
+    doc_dir = _get_doc_dir(doc_name)
+    if not doc_dir.exists():
+        return False
+    
+    # Recursively delete slices/, images/, output.md, content.md, index.json, and lock files
+    for subdir in ["slices", "images"]:
+        subpath = doc_dir / subdir
+        if subpath.exists():
+            shutil.rmtree(subpath)
+    
+    for fname in ["output.md", "content.md", "index.json"]:
+        fpath = doc_dir / fname
+        if fpath.exists():
+            fpath.unlink()
+    
+    for lockfile in doc_dir.glob("*.lock"):
+        lockfile.unlink()
+    
+    return True
