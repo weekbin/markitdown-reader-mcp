@@ -229,6 +229,12 @@ status = get_processing_status(doc_name)
 > 调用方务必设置充足的超时时间（**至少 120 秒**），否则工具调用会因超时而失败。
 > 小图（图标、局部截图）通常在 5-10 秒内返回。
 
+> ⚠️ **并发控制**：
+> - 每轮建议并发数量：**3 个** `understand_image` 调用
+> - 不主动断开连接，每次调用独立复用 session
+> - 每轮间隔建议：**30 秒**
+> - 全部完成后进入下一轮
+
 ```python
 # Example with minimax-token-plan MCP:
 # Use understand_image tool with prompt "OCR this image, return all text"
