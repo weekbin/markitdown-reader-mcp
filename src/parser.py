@@ -435,6 +435,9 @@ def _extract_images_from_pdf(pdf_path: str, doc_name: str, starting_page: int = 
                     if content_hash not in index.get("image_hashes", []):
                         index.setdefault("image_hashes", []).append(content_hash)
                     img_bytes = _resize_image_if_needed(img_bytes)
+                    if len(img_bytes) == 0:
+                        _log.warning(f"Skipping 0-byte image xref={xref} in page {page}")
+                        continue  # Don't write to disk, don't add to index
                     out_path.write_bytes(img_bytes)
                     index["images"].append({
                         "name": out_name,
