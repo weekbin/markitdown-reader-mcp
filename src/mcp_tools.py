@@ -918,8 +918,8 @@ def get_processing_status(doc_name: str = None, file_path: str = None) -> str:
                 "is_small": is_small,
             }
 
-            if is_small:
-                # Small icons/logos - informational only, not needed for understanding
+            if is_small or ocr_status == "informational_only":
+                # Small icons/logos OR blank/decorative pages with no text
                 informational_only.append(img_info)
             elif ocr_status == "error":
                 # Tesseract failed - MUST use premium OCR
@@ -1802,6 +1802,24 @@ def _build_unified_md_output(
     return "\n".join(result_lines)
 
 
+# OCR results that indicate no useful text content → informational_only
+_NO_TEXT_OCR_RESULTS: frozenset[str] = frozenset({
+    "",
+    "无文字内容",
+    "no text",
+    "no text found",
+    "no text content",
+    "no content",
+    "none",
+    "n/a",
+})
+
+
+def _is_informational_ocr(ocr_result: str) -> bool:
+    """Return True when OCR result indicates the image has no meaningful text."""
+    return ocr_result.strip().lower() in _NO_TEXT_OCR_RESULTS
+
+
 def _update_image_ocr(
     doc_name: str, img_id: str, ocr_result: str, position_info: dict
 ) -> bool:
@@ -1813,7 +1831,12 @@ def _update_image_ocr(
         img_found = False
         for img in index.get("images", []):
             if img.get("name") == img_id or img.get("md5") == img_id:
-                img["ocr_status"] = "premium_completed"
+                # Use informational_only status when OCR finds no text content
+                # (blank pages, purely decorative images, etc.).
+                if _is_informational_ocr(ocr_result):
+                    img["ocr_status"] = "informational_only"
+                else:
+                    img["ocr_status"] = "premium_completed"
                 img["ocr_result"] = ocr_result
                 img["ocr_source"] = "manual"
                 if position_info:
@@ -1830,7 +1853,12 @@ def _update_image_ocr(
 
 
 def _rebuild_output_md(doc_name: str):
-    """根据index中的OCR结果重建output.md"""
+    """根据index中的OCR结果重建output.md
+
+    行为：
+    - informational_only 图片（空白页/纯装饰性图片）: 从 output.md 中整体删除
+    - premium_completed 图片: 更新 Image: 行内容，同时把 ![]() 行的 marker 改为 ← premium_completed
+    """
     index = _load_index(doc_name)
     doc_dir = _get_doc_dir(doc_name)
     content_path = doc_dir / "output.md"
@@ -1838,41 +1866,69 @@ def _rebuild_output_md(doc_name: str):
     if not content_path.exists():
         return
 
-    # Build ocr_map: {img_path: ocr_result} from index
-    ocr_map = {}
+    # Build lookup maps from index
+    ocr_map: dict[str, str] = {}          # img_path → ocr_result (premium_completed only)
+    informational_set: set[str] = set()   # img_paths to remove entirely from output.md
     for img in index.get("images", []):
-        if img.get("ocr_result"):
-            img_path = img.get("path", "")
-            ocr_map[img_path] = img.get("ocr_result", "")
+        img_path = img.get("path", "")
+        ocr_status = img.get("ocr_status", "")
+        if ocr_status == "informational_only":
+            informational_set.add(img_path)
+        elif ocr_status == "premium_completed" and img.get("ocr_result"):
+            ocr_map[img_path] = img["ocr_result"]
 
     existing_text = content_path.read_text(encoding="utf-8")
     lines = existing_text.split("\n")
 
     result_lines = []
-    current_img_path = None
-    processed_paths_this_rebuild: set[str] = set()  # Dedupe paths within this rebuild
+    current_img_path: Optional[str] = None
+    skip_current = False  # True when the current image block should be removed
+    processed_paths_this_rebuild: set[str] = set()
 
     for line in lines:
         if line.strip().startswith("![]("):
-            # This is an image anchor line — extract path
-            # Format: ![](/path/to/img.png){.positioned page=N y=Y}
+            # Image anchor line: ![](/path/img.png){.positioned ...}  ← marker
             m = re.search(r"!\[\]\(([^)]+)\)", line)
             if m:
-                current_img_path = m.group(1)
-                # Skip duplicate anchor paths
-                if current_img_path in processed_paths_this_rebuild:
+                path = m.group(1)
+                # Deduplicate within this rebuild pass
+                if path in processed_paths_this_rebuild:
                     current_img_path = None
+                    skip_current = False
                     continue
-                processed_paths_this_rebuild.add(current_img_path)
-            result_lines.append(line)
-        elif line.strip().startswith("Image:") and current_img_path:
-            # Replace Image: line with updated OCR or preserve
+                processed_paths_this_rebuild.add(path)
+                current_img_path = path
+
+                if current_img_path in informational_set:
+                    # Blank/decorative image — remove this entire block
+                    skip_current = True
+                    continue
+
+                skip_current = False
+                if current_img_path in ocr_map:
+                    # Update the ← ... marker to reflect completed premium OCR
+                    updated = re.sub(r'←[^\n]*', '← premium_completed', line)
+                    result_lines.append(updated)
+                else:
+                    result_lines.append(line)
+            else:
+                result_lines.append(line)
+
+        elif line.strip().startswith("Image:") and current_img_path is not None:
+            if skip_current:
+                # Drop the Image: line that belongs to an informational image
+                current_img_path = None
+                skip_current = False
+                continue
             if current_img_path in ocr_map:
                 result_lines.append(f"Image: {ocr_map[current_img_path]}")
             else:
                 result_lines.append(line)
             current_img_path = None
+
         else:
-            result_lines.append(line)
+            if not skip_current:
+                result_lines.append(line)
+            # (Lines between ![]() and Image: that belong to a skipped block are dropped)
 
     content_path.write_text("\n".join(result_lines), encoding="utf-8")
