@@ -651,7 +651,12 @@ def get_processing_status(doc_name: str = None, file_path: str = None) -> str:
     获取文档处理状态。
     - doc_name: 文档名称（可选，与file_path二选一）
     - file_path: 文件路径（可选，会自动转换为doc_name）
-    返回: {pending_images, completed_images, failed_images, progress%, next_steps}
+    返回: {needs_premium_ocr, informational_only, has_tesseract_result, progress%, next_steps}
+
+    图片分类说明:
+    - needs_premium_ocr: 需调用方使用高级OCR处理的图片（tesseract失败或未运行）
+    - informational_only: 小图标/Logo图片，已从output.md过滤，不影响文档理解
+    - has_tesseract_result: tesseract已成功识别，调用方自行决定是否需要重新OCR
     """
     if file_path:
         doc_name = _make_doc_name(file_path)
@@ -665,42 +670,53 @@ def get_processing_status(doc_name: str = None, file_path: str = None) -> str:
         # Only count valid images (non-zero size), matching what callers receive
         images = [img for img in all_index_images if img.get("size", 0) > 0]
 
-        pending_images = []
-        completed_images = []
-        failed_images = []
+        needs_premium_ocr = []
+        informational_only = []
+        has_tesseract_result = []
 
         for img in images:
-            status = img.get("ocr_status", "pending")
+            ocr_status = img.get("ocr_status", "no_result")
+            is_small = img.get("is_small", False)
+            size = img.get("size", 0)
+
             img_info = {
                 "name": img.get("name"),
                 "page": img.get("page"),
-                "size": img.get("size"),
+                "size": size,
+                "is_small": is_small,
             }
-            if status == "completed":
-                completed_images.append(img_info)
-            elif status == "failed":
-                failed_images.append(img_info)
+
+            if is_small:
+                # Small icons/logos - informational only, not needed for understanding
+                informational_only.append(img_info)
+            elif ocr_status == "error":
+                # Tesseract failed - MUST use premium OCR
+                needs_premium_ocr.append(img_info)
+            elif ocr_status == "no_result":
+                # Small image skipped by tesseract (<50KB) - MUST use premium OCR
+                needs_premium_ocr.append(img_info)
             else:
-                pending_images.append(img_info)
+                # has_result - tesseract succeeded, caller decides whether to re-OCR
+                has_tesseract_result.append(img_info)
 
         total = len(images)
-        progress = (len(completed_images) / total * 100) if total > 0 else 0
+        progress = (len(has_tesseract_result) / total * 100) if total > 0 else 0
 
         next_steps = []
-        if pending_images:
-            next_steps.append(f"Retry {len(pending_images)} pending images with retry_failed_images()")
-        if failed_images:
-            next_steps.append(f"Review {len(failed_images)} failed images - they may need manual OCR")
+        if needs_premium_ocr:
+            next_steps.append(f"Use premium OCR for {len(needs_premium_ocr)} images (tesseract failed or skipped)")
+        if informational_only:
+            next_steps.append(f"{len(informational_only)} small/icon images are informational only - safe to ignore")
         if not next_steps:
-            next_steps.append("All images processed - document is complete")
+            next_steps.append("All images have tesseract results - document is complete")
 
         slicing_mode = "paired" if index.get("pdf_slices") and index.get("docx_slices") else ("pdf_only" if index.get("pdf_slices") else "docx_only" if index.get("docx_slices") else "single")
 
         return {
             "doc_name": doc_name,
-            "pending_images": pending_images,
-            "completed_images": completed_images,
-            "failed_images": failed_images,
+            "needs_premium_ocr": needs_premium_ocr,
+            "informational_only": informational_only,
+            "has_tesseract_result": has_tesseract_result,
             "progress": round(progress, 1),
             "total_images": total,
             "next_steps": next_steps,
