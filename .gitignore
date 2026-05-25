@@ -4,4 +4,6 @@ __pycache__/
 .mypy_cache/
 .venv/
 *.egg-info/
+.omo/
+.opencode/
 .git/
