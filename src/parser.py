@@ -400,12 +400,46 @@ def _read_docx_text(path: str) -> str:
     return "\n\n".join(parts)
 
 
+def _is_layout_table(tbl_elem) -> bool:
+    """Return True if this DOCX table uses invisible borders (layout table, not data table).
+
+    National standards documents (GB/T, ISO, IEC) commonly use borderless tables
+    for column-aligned reference lists. These should be rendered as plain text
+    rather than Markdown tables, which would mislead downstream consumers.
+    """
+    W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+    tbl_pr = tbl_elem.find(f"{{{W}}}tblPr")
+    if tbl_pr is None:
+        return False
+    tbl_borders = tbl_pr.find(f"{{{W}}}tblBorders")
+    if tbl_borders is None:
+        return False
+    _NO_BORDER = {"none", "nil"}
+    border_tags = ["top", "left", "bottom", "right", "insideH", "insideV"]
+    declared = 0
+    none_count = 0
+    for tag in border_tags:
+        elem = tbl_borders.find(f"{{{W}}}{tag}")
+        if elem is not None:
+            declared += 1
+            if elem.get(f"{{{W}}}val", "").lower() in _NO_BORDER:
+                none_count += 1
+    # Layout table: all declared border sides are explicitly "none"/"nil"
+    return declared >= 4 and none_count == declared
+
+
 def _docx_table_to_markdown(tbl_elem) -> str:
-    """将 DOCX 表格元素转为 Markdown 表格"""
+    """将 DOCX 表格元素转为 Markdown 表格。
+
+    对无边框布局表（常见于国标规范性引用文件章节），改为输出纯文本行，
+    避免误判为数据表。
+    """
     W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
     rows = tbl_elem.findall(f".//{{{W}}}tr")
     if not rows:
         return ""
+
+    is_layout = _is_layout_table(tbl_elem)
 
     parts = []
     for ri, tr in enumerate(rows):
@@ -414,9 +448,18 @@ def _docx_table_to_markdown(tbl_elem) -> str:
         for tc in cells:
             cell_text = "".join(t.text or "" for t in tc.iter(f"{{{W}}}t")).strip()
             row_text.append(cell_text)
-        parts.append("| " + " | ".join(row_text) + " |")
-        if ri == 0:
-            parts.append("| " + " | ".join(["---"] * len(row_text)) + " |")
+
+        if is_layout:
+            # Borderless layout table → plain text, cells joined by double space
+            joined = "  ".join(c for c in row_text if c)
+            if joined:
+                parts.append(joined)
+        else:
+            # Data table → Markdown table with | separators
+            parts.append("| " + " | ".join(row_text) + " |")
+            if ri == 0:
+                parts.append("| " + " | ".join(["---"] * len(row_text)) + " |")
+
     return "\n".join(parts)
 
 
