@@ -244,6 +244,13 @@ understand_image(image_path="/path/to/image.png", prompt="Return all text conten
 ```
 
 **Step 4**: Submit OCR results
+
+> ⚠️ **重要原则**：OCR 结果必须**原样提交**。
+> - `ocr_result` 字段应包含图片中识别的**全部原始文字**
+> - 可以对文字进行总结、整理格式，但**不能完全忽略原始文本**
+> - 原始文本是后续分析、检索的依据，必须保留
+> - 示例：图片含"图1 系统架构"和"充电模块" → `"ocr_result": "图1 系统架构\n\n充电模块"`（保留全部文字）
+
 ```python
 # Batch update all results at once
 updates = [
