@@ -10,12 +10,16 @@
 
 ## 工具接口（5个）
 
-### 1. read_document(path, fast=False)
+### 1. read_document(path, fast=False, slice_ids=None, force_refresh=False, callback_url="")
 **首选工具**。传入任意路径，自动检测配对文件并读取。
 
 **参数**：
+- `path`：文件路径（PDF 或 DOCX）
 - `fast=False`（默认）：文字 + 图片全量，较慢
 - `fast=True`：只读文字，跳过图片提取，**秒回**
+- `slice_ids=None`（默认）：读全部分片。若指定，则从预先分片文件中只读指定分片。**需要先调用 slice_document()**
+- `force_refresh=False`（默认）：复用缓存/断点续读。`True`=清空所有缓存和历史，重新从头处理
+- `callback_url=""`（默认）：可选的 HTTP POST 回调地址。仅在你有 HTTP 服务监听时才设置。
 
 **返回 `[STATUS]` 块，agent 可直接解析**：
 
@@ -33,17 +37,19 @@
   "content_written": true,
   "content_path": "/path/to/content.md",
   "chars": 450000,
-  "mode": "pdf_single"
+  "mode": "pdf_single",
+  "next_steps": [...]
 }
 ```
 
 **mode 取值**：`paired` / `pdf_single` / `docx_single`
 
 **调度规则（按顺序检查 STATUS）**：
-1. `need_pairing: true` → **立即询问用户**能否提供另一格式
+1. `need_pairing: true` → **立即询问用户**能否提供另一格式（也可查看 `next_steps` 获取配对建议）
 2. `fast: true` → 图片未提取，需要单独用 `extract_images()` 补
 3. `content_written: true` → 读取 `content_path` 获取完整内容
 4. `images_extracted: false` → 调用 `extract_images()` 提取图片
+5. **始终检查 `next_steps` 字段**，它提供下一步行动建议
 
 ### 2. slice_document(path, pages_per_slice=5)
 **独立分片工具**。只分片，不读取内容，返回结构化信息。
@@ -61,7 +67,7 @@
 }
 ```
 
-### 3. read_document_pair(pdf_path, docx_path)
+### 3. read_document_pair(pdf_path, docx_path, force_refresh=False, callback_url="")
 **显式配对读取**。用户已确认有配对文件时使用。
 
 ```python
@@ -69,8 +75,21 @@ read_document_pair("/path/a.pdf", "/path/a.docx")
 ```
 → DOCX 提取文字表格，PDF 提取图片
 
-### 4. extract_images(path)
-**单独提取图片**。小图(<50KB)已内置 OCR，返回路径列表。
+注意：`fast` 不是 `read_document_pair` 的参数，图片提取由服务内部控制。
+
+### 配对模式 vs 单文件模式
+
+**配对模式（推荐）**：
+- PDF → 图片（含位置信息）
+- DOCX → 文字 + 表格
+- 同一内容在不同页出现 → 只存一份（image_hashes 去重）
+
+**单文件模式（不推荐）**：
+- 只有 PDF → 文字可能乱码（CID-font 问题）
+- 只有 DOCX → 无法提取图片
+
+### 4. extract_images(path, page_range="")
+**单独提取图片**。返回路径列表，小图(<50KB)已内置 OCR。
 
 ### 5. get_document_info(path)
 查看元信息：页数、段落数、表格数、预估分片数、配对建议。
@@ -82,12 +101,12 @@ read_document_pair("/path/a.pdf", "/path/a.docx")
 **Step 1**：快速探查
 ```
 read_document(path, fast=True)   ← 先用 fast 模式，秒回
-  → 看 STATUS need_pairing / fast / content_written
+  → 看 STATUS need_pairing / fast / content_written / next_steps
 ```
 
 **Step 2a**：`need_pairing: true` → 询问用户能否提供另一格式
 
-**Step 2b**：有配对或用户确认 → `read_document_pair(pdf, docx, fast=False)`
+**Step 2b**：有配对或用户确认 → `read_document_pair(pdf, docx)`
 
 **Step 2c**：无配对且无法提供 → 单文件模式继续干活，可选 `fast=True` 先拿文字
 
@@ -103,6 +122,44 @@ extract_images(path)
 **如果工具调用超时**（MCP error -32001）：
 → 说明文档很大，改用 `fast=True` 先拿文字，图片单独提取
 
+## ⚠️ 多进程分片调用 — 反模式警告
+
+**切勿这样做**：
+```
+slices = slice_document(path)
+for s in slices:
+    read_document(path, slice_ids=[s])  # ❌ 并行调用
+```
+
+**问题**：
+1. 每个并行调用读写同一个 index.json → last write wins，早期结果丢失
+2. 各进程的 seen_hashes 独立 → image_hashes 跨页去重完全失效
+3. 若任意进程 force_refresh=True → 清空 image_hashes → 其他全部失效
+
+**正确做法**：
+```
+read_document_pair(pdf_path, docx_path)  # ✅ 一次调用，内部自动分片
+```
+
+**理由**：
+- 共享 index.json 和 image_hashes，跨 slice 去重有效
+- 原子性缓存更新，无并发冲突
+- 服务内部已有并行处理
+
+若文档很大导致超时 → 使用 `fast=True` 先拿文字，图片单独提取。
+
+## 出错恢复
+
+| 工具 | 用途 |
+|------|------|
+| `get_processing_status(doc_name)` | 查看 pending/failed 图片数 |
+| `retry_failed_images(doc_name)` | 重试失败图片的 OCR |
+| `resume_document(file_path)` | 从上次断点继续处理 |
+
+## next_steps 字段
+
+Every response includes `next_steps: [...]`. **必须检查此字段**，它提供下一步行动建议。
+
 ## 目录结构
 
 ```
@@ -117,11 +174,12 @@ extract_images(path)
 ## 关键约束
 
 | 约束 | 值 |
-|------|------|
+|------|-----|
 | PDF 分片 | 每 5 页一片 |
-| DOCX 分片 | 每 20 block 一片 |
+| DOCX 分片 | 每 **200** block 一片 |
 | 直接返回上限 | 400K 字符（超限写文件） |
-| 小图 OCR 阈值 | <50KB（内置 tesseract） |
+| 小图过滤 | <1KB 或 <32×32 → 不出现在 images 列表但仍保存到磁盘 + OCR |
+| 大图 OCR 阈值 | <50KB → 自动 tesseract OCR，结果在返回中 |
 | 大图 | ≥50KB，返回 file:// 路径 |
 | 图片池 | 持久化到 ~/.opencode/markitdown/ |
 
