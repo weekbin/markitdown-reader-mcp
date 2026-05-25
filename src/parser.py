@@ -365,8 +365,10 @@ def _extract_images_from_pdf(pdf_path: str, doc_name: str, starting_page: int = 
     if force_refresh:
         seen_hashes: set[str] = set()
         index["images"] = []
+        index["image_hashes"] = []
     else:
-        seen_hashes = set(img["md5"] for img in index["images"])
+        seen_hashes = set(index.get("image_hashes", []))
+        seen_hashes.update(img["md5"] for img in index["images"])
     results = []
 
     with fitz.open(pdf_path) as doc:
@@ -430,6 +432,8 @@ def _extract_images_from_pdf(pdf_path: str, doc_name: str, starting_page: int = 
                 is_new = content_hash not in seen_hashes
                 if is_new:
                     seen_hashes.add(content_hash)
+                    if content_hash not in index.get("image_hashes", []):
+                        index.setdefault("image_hashes", []).append(content_hash)
                     img_bytes = _resize_image_if_needed(img_bytes)
                     out_path.write_bytes(img_bytes)
                     index["images"].append({
@@ -466,8 +470,10 @@ def _extract_images_from_docx(docx_path: str, doc_name: str, force_refresh: bool
     if force_refresh:
         seen_hashes: set[str] = set()
         index["images"] = []
+        index["image_hashes"] = []
     else:
-        seen_hashes = set(img["md5"] for img in index["images"])
+        seen_hashes = set(index.get("image_hashes", []))
+        seen_hashes.update(img["md5"] for img in index["images"])
     results = []
 
     with zipfile.ZipFile(docx_path, "r") as z:
@@ -497,6 +503,8 @@ def _extract_images_from_docx(docx_path: str, doc_name: str, force_refresh: bool
             is_new = content_hash not in seen_hashes
             if is_new:
                 seen_hashes.add(content_hash)
+                if content_hash not in index.get("image_hashes", []):
+                    index.setdefault("image_hashes", []).append(content_hash)
                 img_bytes = _resize_image_if_needed(img_bytes)
                 out_path.write_bytes(img_bytes)
                 index["images"].append({
