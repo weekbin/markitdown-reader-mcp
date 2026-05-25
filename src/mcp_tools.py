@@ -1306,10 +1306,16 @@ def _build_unified_md_output(text: str, images: list[dict], doc_name: str, doc_p
                 img_y = img.get("y", 0)
                 ocr_text = img.get("ocr", "")
                 img_anchor = img.get("anchor_text", "")
-                is_small = img.get("is_small", False)
                 pos_str = f"page={img_page}" if img_page is not None else "page=0"
                 if img_y:
                     pos_str += f" y={int(img_y)}"
+                # Compute OCR status marker
+                if ocr_text and not ocr_text.startswith("ERROR:"):
+                    marker = f"← tesseract: {ocr_text[:50]}"
+                elif ocr_text and ocr_text.startswith("ERROR:"):
+                    marker = "← tesseract_failed"
+                else:
+                    marker = "← pending_premium_ocr"
                 anchor_text = ocr_text if ocr_text else img_anchor
                 # Get nearby text as anchor if no OCR or anchor
                 if not anchor_text and section_text:
@@ -1317,10 +1323,7 @@ def _build_unified_md_output(text: str, images: list[dict], doc_name: str, doc_p
                     anchor_text = f"Image ({nearby}...)" if nearby else "Image"
                 elif not anchor_text:
                     anchor_text = f"Image on page {img_page}" if img_page else "Image"
-                # Small image override
-                if is_small and not ocr_text and not img_anchor:
-                    anchor_text = f"Small image on page {img_page}" if img_page else "Small image"
-                result_lines.append(f"![]({img_path}){{.positioned {pos_str}}}")
+                result_lines.append(f"![]({img_path}){{.positioned {pos_str}}}  {marker}")
                 result_lines.append(f"Image: {anchor_text}\n")
             img_idx += 1
 
@@ -1332,10 +1335,16 @@ def _build_unified_md_output(text: str, images: list[dict], doc_name: str, doc_p
         img_y = img.get("y", 0)
         ocr_text = img.get("ocr", "")
         img_anchor = img.get("anchor_text", "")
-        is_small = img.get("is_small", False)
         pos_str = f"page={page}" if page else "page=0"
         if img_y:
             pos_str += f" y={int(img_y)}"
+        # Compute OCR status marker
+        if ocr_text and not ocr_text.startswith("ERROR:"):
+            marker = f"← tesseract: {ocr_text[:50]}"
+        elif ocr_text and ocr_text.startswith("ERROR:"):
+            marker = "← tesseract_failed"
+        else:
+            marker = "← pending_premium_ocr"
         anchor_text = ocr_text if ocr_text else img_anchor
         # Get nearby text as anchor if no OCR or anchor
         if not anchor_text and section_text:
@@ -1343,10 +1352,7 @@ def _build_unified_md_output(text: str, images: list[dict], doc_name: str, doc_p
             anchor_text = f"Image ({nearby}...)" if nearby else "Image"
         elif not anchor_text:
             anchor_text = f"Image on page {page}" if page else "Image"
-        # Small image override
-        if is_small and not ocr_text and not img_anchor:
-            anchor_text = f"Small image on page {page}" if page else "Small image"
-        result_lines.append(f"![]({img_path}){{.positioned {pos_str}}}")
+        result_lines.append(f"![]({img_path}){{.positioned {pos_str}}}  {marker}")
         result_lines.append(f"Image: {anchor_text}\n")
         img_idx += 1
 

@@ -160,6 +160,75 @@ read_document_pair(pdf_path, docx_path)  # ✅ 一次调用，内部自动分片
 
 Every response includes `next_steps: [...]`. **必须检查此字段**，它提供下一步行动建议。
 
+## Caller Premium OCR Guide
+
+### Overview
+Tesseract provides emergency OCR only for small images (<50KB). For quality-critical content
+(diagrams, complex tables, Chinese documents), use a premium OCR service (e.g., minimax token plan MCP).
+
+### Detection — Which Images Need Premium OCR?
+
+After `read_document_pair`, check image anchors in `output.md`:
+
+```
+← tesseract: "充电接口..."     → Low quality, caller can re-OCR with premium service
+← pending_premium_ocr         → Small image skipped by tesseract, caller must OCR
+← tesseract_failed            → Tesseract gave up, caller must OCR
+```
+
+Or query programmatically via `get_processing_status(doc_name)`.
+
+### Step-by-Step Workflow
+
+**Step 1**: Read document
+```python
+read_document_pair(pdf_path, docx_path)
+# Returns: text + image list + next_steps
+```
+
+**Step 2**: Check which images need premium OCR
+```python
+# Option A: Parse output.md for "pending_premium_ocr" markers
+# Option B: Query structured status
+get_processing_status(doc_name)
+# Returns: {pending_images: [{"img_id": "p11_i1", "size_kb": 24, "status": "pending"}, ...]}
+```
+
+**Step 3**: Call premium OCR on each pending image
+```python
+# Example with minimax-token-plan MCP:
+# Use understand_image tool with prompt "OCR this image, return all text"
+markitdown-reader_get_cached_content(doc_name)  # Get image file paths
+# For each pending image:
+understand_image(image_path="/path/to/image.png", prompt="Return all text content in this image")
+```
+
+**Step 4**: Submit OCR results
+```python
+# Batch update all results at once
+updates = [
+    {"img_id": "p11_i1", "ocr_result": "充电接口互操作性测试框图...", "position_info": {...}},
+    {"img_id": "p1_i0", "ocr_result": "产品封面...", "position_info": {...}},
+]
+update_batch_document_markdown(updates)
+```
+
+### Image File Path Access
+
+Images are stored at:
+```
+~/.opencode/markitdown/{doc_name}/images/{doc}_p{page}_i{index}_{md5hash}.png
+```
+
+Get from `get_cached_content(doc_name)` → look for `images` list, or read `index.json`.
+
+### 重要提醒
+
+- **Do NOT** call `retry_failed_images()` for quality OCR — tesseract is not the right tool
+- **Use** `update_batch_document_markdown` to commit premium OCR results
+- **Image anchors** in `output.md` will update automatically after batch update
+- **Small images** (icons, logos, <32x32px or <1KB) are excluded from `output.md` but saved to disk for audit
+
 ## 目录结构
 
 ```
