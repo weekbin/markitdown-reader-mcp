@@ -199,7 +199,7 @@ read_document_pair(pdf, docx)  # One call, internal slicing — ✅
 - **Paired detection**: Auto-find same-stem PDF+DOCX without explicit pairing
 - **Image pool**: Images in `~/.opencode/markitdown/{doc}/images/`. Content-based dedup via `index.json["image_hashes"]` — same content on different pages = one file. MD5 computed from original bytes (before resize).
 - **Small image filter**: <1KB or <32×32 pixels — excluded from `images` list but saved to disk and OCR'd for audit. Appears as `is_small: true` in index.
-- **Process isolation**: Each MCP call = separate PID, logs to `server_{pid}.log`
+- **Process isolation**: Each MCP call = separate PID, logs to `logs/markitdown.log`
 - **Mixed response**: Status block + Markdown in single response
 - **Callback events**: POST notifications on document start/complete
 

@@ -293,6 +293,29 @@ result = delete_cache(doc_name)
 └── index.json    # 元信息
 ```
 
+## 日志
+
+日志统一写入：
+```
+~/.opencode/markitdown/logs/markitdown.log
+```
+
+格式：
+```
+2026-05-25 18:30:15 [markitdown] DEBUG read_document_pair doc=GBT34657.2-2017_8732ef55
+2026-05-25 18:30:16 [markitdown] DEBUG PDF slices=3 images=29
+```
+
+查看最新日志：
+```bash
+tail -f ~/.opencode/markitdown/logs/markitdown.log
+```
+
+过滤特定文档：
+```bash
+grep GBT34657 ~/.opencode/markitdown/logs/markitdown.log
+```
+
 ## 关键约束
 
 | 约束 | 值 |
