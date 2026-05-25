@@ -1168,6 +1168,7 @@ def _read_paired_documents(
     _log.debug(f"  _read_paired: {len(pdf_slices)} PDF slices, mem={mem()}MB")
 
     all_images = []
+    combined_index = {"images": [], "image_hashes": []}
     if extract_images:
         _log.debug(f"  _read_paired: extracting images from {len(pdf_slices)} slices")
         for i, sl in enumerate(pdf_slices):
@@ -1176,10 +1177,12 @@ def _read_paired_documents(
             starting_page = i * SLICE_PAGES + 1
             imgs, index = _extract_images_from_pdf(sl["path"], doc_name, starting_page, force_refresh)
             all_images.extend(imgs)
+            combined_index["images"].extend(index.get("images", []))
+            combined_index["image_hashes"].extend(index.get("image_hashes", []))
             print(f"  _read_paired: slice {i+1}/{len(pdf_slices)} done: {len(imgs)} imgs, total={len(all_images)}, mem={resource.getrusage(resource.RUSAGE_SELF).ru_maxrss // 1024}MB", flush=True)
 
     if extract_images:
-        _save_index(doc_name, index)
+        _save_index(doc_name, combined_index)
 
     _log.debug(f"  _read_paired: slicing DOCX")
     docx_slices = _slice_docx(docx_path, doc_name)
