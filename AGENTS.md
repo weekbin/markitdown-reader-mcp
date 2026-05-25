@@ -146,9 +146,49 @@ pip install mcp PyMuPDF python-docx Pillow pytesseract
     └── output.md            # Current unified output
 ```
 
+## TESTING PROCESS
+
+### Running Tests
+
+```bash
+# Run comprehensive test suite
+python comprehensive_test.py
+
+# Run from .venv if needed
+.venv/bin/python3 comprehensive_test.py
+```
+
+### Test Coverage
+
+All 14 MCP tools are tested in `comprehensive_test.py`:
+
+| Phase | Tools |
+|-------|-------|
+| Phase 1: Stateless | `list_supported_files`, `list_cache_dir`, `get_processing_status` |
+| Phase 2: Cache Population | `read_document`, `read_document_pair`, `slice_document`, `get_document_info`, `extract_images` |
+| Phase 3: State-dependent | `get_processing_status`, `list_cache_dir`, `get_cached_content`, `retry_failed_images`, `resume_document` |
+| Phase 4: OCR | `ocr_image` |
+| Phase 5: Update | `update_document_markdown`, `update_batch_document_markdown` |
+
+### Watchdog Protection
+
+- Memory limit: 800MB
+- CPU limit: 150%
+- Timeout: 300s per phase
+
+### Test Reports
+
+Reports are saved to `docs/test-reports/` with format `comprehensive-YYYY-MM-DD.md`.
+
+### Adding New Tools to Tests
+
+When adding a new MCP tool:
+1. Add the tool call to the appropriate phase in `comprehensive_test.py`
+2. Ensure the tool is tested with both success and error cases
+3. Update this section if the tool requires special handling
+
 ## NOTES
 
-- No test suite exists
 - `slice_ids` in `read_document` must map to actual slice directories
 - Image deduplication uses `seen_paths` set across three functions
 - OCR loop and progress building duplicated in `_read_slices_direct`, `_read_single_document`, `_read_paired_documents`
