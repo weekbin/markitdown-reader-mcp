@@ -122,6 +122,10 @@ extract_images(path)
 **如果工具调用超时**（MCP error -32001）：
 → 说明文档很大，改用 `fast=True` 先拿文字，图片单独提取
 
+**如果 `understand_image` 调用超时**：
+- 大图可能需要 30-60 秒，确保超时至少设为 **120 秒**
+- 若频繁超时，可考虑降至 `fast=True` 只提取文字，跳过图片 OCR
+
 ## ⚠️ 多进程分片调用 — 反模式警告
 
 **切勿这样做**：
@@ -220,11 +224,16 @@ status = get_processing_status(doc_name)
 ```
 
 **Step 3**: Call premium OCR on each pending image
+
+> ⚠️ **速度说明**：`minimax-token-plan_understand_image` 分析大图（如全页截图、复杂表格）可能需要 **30-60 秒**。
+> 调用方务必设置充足的超时时间（**至少 120 秒**），否则工具调用会因超时而失败。
+> 小图（图标、局部截图）通常在 5-10 秒内返回。
+
 ```python
 # Example with minimax-token-plan MCP:
 # Use understand_image tool with prompt "OCR this image, return all text"
 markitdown-reader_get_cached_content(doc_name)  # Get image file paths
-# For each pending image:
+# For each pending image (⚠️ timeout must be >= 120s):
 understand_image(image_path="/path/to/image.png", prompt="Return all text content in this image")
 ```
 
