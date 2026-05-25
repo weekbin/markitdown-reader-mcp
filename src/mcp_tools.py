@@ -604,14 +604,15 @@ def update_batch_document_markdown(updates: list[dict]) -> str:
     remaining = 0
     failed = []
 
-    updated_docs = set()
-
+    # Group updates by doc_name first
+    updates_by_doc: dict[str, list] = {}
     for update in updates:
         img_id = update.get("img_id", "")
-        ocr_result = update.get("ocr_result", "")
+        ocr_result = str(update.get("ocr_result", ""))
         position_info = update.get("position_info") or {}
 
-        found = False
+        # Find doc_name for this img_id
+        doc_name = None
         for img_dir in BASE_DIR.iterdir():
             if not img_dir.is_dir():
                 continue
@@ -622,20 +623,46 @@ def update_batch_document_markdown(updates: list[dict]) -> str:
             for img in index.get("images", []):
                 if img.get("name") == img_id or img.get("md5") == img_id:
                     doc_name = img_dir.name
-                    if _update_image_ocr(doc_name, img_id, ocr_result, position_info):
-                        updated += 1
-                        found = True
-                        updated_docs.add(doc_name)
-                        break
-            if found:
+                    break
+            if doc_name:
                 break
 
-        if not found:
+        if not doc_name:
             remaining += 1
             failed.append(img_id)
+            continue
 
-    for doc_name in updated_docs:
-        _rebuild_output_md(doc_name)
+        if doc_name not in updates_by_doc:
+            updates_by_doc[doc_name] = []
+        updates_by_doc[doc_name].append({
+            "img_id": img_id,
+            "ocr_result": ocr_result,
+            "position_info": position_info,
+        })
+
+    # Process each doc once: update index, then rebuild
+    for doc_name, doc_updates in updates_by_doc.items():
+        lock_path = _get_doc_dir(doc_name) / ".index.lock"
+        lock_fd = _lock_file(lock_path)
+        try:
+            index = _load_index(doc_name)
+            for upd in doc_updates:
+                img_id = upd["img_id"]
+                ocr_result = upd["ocr_result"]
+                position_info = upd["position_info"]
+                for img in index.get("images", []):
+                    if img.get("name") == img_id or img.get("md5") == img_id:
+                        img["ocr_status"] = "premium_completed"
+                        img["ocr_result"] = ocr_result
+                        img["ocr_source"] = "manual"
+                        if position_info:
+                            img["position_info"] = position_info
+                        updated += 1
+                        break
+            _save_index_nolock(doc_name, index)
+        finally:
+            _unlock_file(lock_fd)
+        _rebuild_output_md(doc_name)  # Only ONCE per doc
 
     return json.dumps({
         "updated": updated,
@@ -1435,6 +1462,7 @@ def _rebuild_output_md(doc_name: str):
 
     result_lines = []
     current_img_path = None
+    processed_paths_this_rebuild: set[str] = set()  # Dedupe paths within this rebuild
 
     for line in lines:
         if line.strip().startswith("![]("):
@@ -1443,6 +1471,11 @@ def _rebuild_output_md(doc_name: str):
             m = re.search(r'!\[\]\(([^)]+)\)', line)
             if m:
                 current_img_path = m.group(1)
+                # Skip duplicate anchor paths
+                if current_img_path in processed_paths_this_rebuild:
+                    current_img_path = None
+                    continue
+                processed_paths_this_rebuild.add(current_img_path)
             result_lines.append(line)
         elif line.strip().startswith("Image:") and current_img_path:
             # Replace Image: line with updated OCR or preserve
