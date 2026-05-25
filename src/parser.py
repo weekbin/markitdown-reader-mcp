@@ -87,10 +87,25 @@ def _save_index(doc_name: str, index: dict):
 # PDF 分片
 # ─────────────────────────────────────────────────────────────────
 
-def _slice_pdf(src: str, doc_name: str, pages_per_slice: int = SLICE_PAGES, time_budget: float = 300.0) -> list[dict]:
+def _clear_index_slices(doc_name: str):
+    """Clear pdf_slices and docx_slices from index to force reslicing."""
+    index = _load_index(doc_name)
+    if "pdf_slices" in index or "docx_slices" in index or "slices" in index:
+        _log.debug(f"_clear_index_slices: clearing slices from index for {doc_name}")
+        index["pdf_slices"] = []
+        index["docx_slices"] = []
+        index["slices"] = []
+        _save_index(doc_name, index)
+
+
+def _slice_pdf(src: str, doc_name: str, pages_per_slice: int = SLICE_PAGES, time_budget: float = 300.0, force_refresh: bool = False) -> list[dict]:
     """PyMuPDF 按页分片，返回分片信息列表。支持时间预算控制，增量保存进度。"""
     import fitz
     _log.debug(f"  _slice_pdf: opening {src}")
+    # GUARD: if force_refresh is set, ensure we don't use stale index data
+    if force_refresh:
+        _log.debug(f"_slice_pdf: force_refresh=True, clearing any stale index data for {doc_name}")
+        _clear_index_slices(doc_name)
     start_time = time.monotonic()
     with fitz.open(src) as doc:
         total = len(doc)
@@ -135,10 +150,14 @@ def _slice_pdf(src: str, doc_name: str, pages_per_slice: int = SLICE_PAGES, time
 # DOCX 分片
 # ─────────────────────────────────────────────────────────────────
 
-def _slice_docx(src: str, doc_name: str, blocks_per_slice: int = SLICE_BLOCKS, time_budget: float = 300.0) -> list[dict]:
+def _slice_docx(src: str, doc_name: str, blocks_per_slice: int = SLICE_BLOCKS, time_budget: float = 300.0, force_refresh: bool = False) -> list[dict]:
     """python-docx XML 按 block 分片，返回分片信息列表。支持时间预算控制，增量保存进度。"""
     from lxml import etree
     _log.debug(f"  _slice_docx: opening {src}")
+    # GUARD: if force_refresh is set, ensure we don't use stale index data
+    if force_refresh:
+        _log.debug(f"_slice_docx: force_refresh=True, clearing any stale index data for {doc_name}")
+        _clear_index_slices(doc_name)
     start_time = time.monotonic()
     W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
     slices_dir = _get_slices_dir(doc_name)

@@ -1267,7 +1267,7 @@ def _read_paired_documents(
     _post_callback(callback_url, "read_started", {"pdf_path": pdf_path, "docx_path": docx_path, "doc_name": doc_name})
 
     _log.debug(f"  _read_paired: slicing PDF")
-    pdf_slices = _slice_pdf(pdf_path, doc_name)
+    pdf_slices = _slice_pdf(pdf_path, doc_name, force_refresh=force_refresh)
     print(f"  _read_paired: PDF sliced into {len(pdf_slices)} slices, mem={resource.getrusage(resource.RUSAGE_SELF).ru_maxrss // 1024}MB", flush=True)
     _log.debug(f"  _read_paired: {len(pdf_slices)} PDF slices, mem={mem()}MB")
 
@@ -1290,10 +1290,14 @@ def _read_paired_documents(
         _log.warning(f"_read_paired: force_refresh={force_refresh} extracted 0 images from {len(pdf_slices)} slices")
 
     if extract_images:
-        _save_index(doc_name, combined_index)
+        # FIX: Load existing index and merge images into it, don't overwrite pdf_slices
+        existing_index = _load_index(doc_name)
+        existing_index["images"] = combined_index.get("images", [])
+        existing_index["image_hashes"] = combined_index.get("image_hashes", [])
+        _save_index(doc_name, existing_index)
 
     _log.debug(f"  _read_paired: slicing DOCX")
-    docx_slices = _slice_docx(docx_path, doc_name)
+    docx_slices = _slice_docx(docx_path, doc_name, force_refresh=force_refresh)
     print(f"  _read_paired: DOCX sliced into {len(docx_slices)} slices, mem={resource.getrusage(resource.RUSAGE_SELF).ru_maxrss // 1024}MB", flush=True)
     _log.debug(f"  _read_paired: {len(docx_slices)} DOCX slices, mem={mem()}MB")
 
