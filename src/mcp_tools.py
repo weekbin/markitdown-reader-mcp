@@ -311,7 +311,8 @@ def extract_images(file_path: str, page_range: str = "") -> str:
             imgs, index = _extract_images_from_pdf(file_path, doc_name)
             _save_index(doc_name, index)
     else:
-        imgs = _extract_images_from_docx(file_path, doc_name)
+        imgs, docx_index = _extract_images_from_docx(file_path, doc_name)
+        _save_index(doc_name, docx_index)
 
     lines = [f"共 {len(imgs)} 张图片:\n"]
     for img in imgs:
@@ -966,13 +967,14 @@ def _read_slices_direct(
                 starting_page = slice_idx * SLICE_PAGES + 1
                 imgs, index = _extract_images_from_pdf(path, doc_name, starting_page, force_refresh)
             else:
-                imgs = _extract_images_from_docx(path, doc_name, force_refresh)
+                imgs, docx_index = _extract_images_from_docx(path, doc_name, force_refresh)
                 for img in imgs:
                     if img.get("rId"):
                         anchor_info = _get_docx_image_anchor(path, img["rId"])
                         img["paragraph_index"] = anchor_info.get("paragraph_index", -1)
                         img["anchor_text"] = anchor_info.get("anchor_text", "")
-            all_images.extend(imgs)
+                all_images.extend(imgs)
+                _save_index(doc_name, docx_index)
 
     full_text = "\n\n".join(text_parts)
     _log.debug(f"  _read_slices_direct: done, {len(full_text)} chars, {len(found_ids)} slices")
@@ -1075,13 +1077,14 @@ def _read_single_document(
             txt = _read_docx_text(sl["path"])
             text_parts.append(f"=== [{sl['id']}] ===\n{txt}")
             if extract_images:
-                imgs = _extract_images_from_docx(sl["path"], doc_name, force_refresh)
+                imgs, docx_index = _extract_images_from_docx(sl["path"], doc_name, force_refresh)
                 for img in imgs:
                     if img.get("rId"):
                         anchor_info = _get_docx_image_anchor(sl["path"], img["rId"])
                         img["paragraph_index"] = anchor_info.get("paragraph_index", -1)
                         img["anchor_text"] = anchor_info.get("anchor_text", "")
                 all_images.extend(imgs)
+                _save_index(doc_name, docx_index)
 
     else:
         txt = _read_generic_text(file_path)
