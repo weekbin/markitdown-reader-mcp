@@ -359,6 +359,7 @@ def _resize_image_if_needed(img_bytes: bytes, max_dim: int = 1280) -> bytes:
 def _extract_images_from_pdf(pdf_path: str, doc_name: str, starting_page: int = 1, force_refresh: bool = False) -> tuple[list[dict], dict]:
     """从 PDF 提取图片，返回图片信息列表（含大小/页码/MD5/bbox/local_page）"""
     import fitz
+    _log.debug(f"_extract_images_from_pdf: doc={doc_name} page_start={starting_page} force_refresh={force_refresh}")
     _log.debug(f"  _extract_images_from_pdf: opening {pdf_path}")
     images_dir = _get_images_dir(doc_name)
     index = _load_index(doc_name)
@@ -379,6 +380,8 @@ def _extract_images_from_pdf(pdf_path: str, doc_name: str, starting_page: int = 
                 _log.debug(f"  _extract_images_from_pdf: page {page_num+1}/{total_pages}, mem={mem()}MB")
             page = doc[page_num]
             img_list = page.get_images(full=True)
+            if not img_list:
+                _log.warning(f"_extract_images_from_pdf: page {page_num+1} has no images (img_list empty)")
             img_rects = {}
             # Get image positions using xref as key
             for img in img_list:
@@ -396,6 +399,8 @@ def _extract_images_from_pdf(pdf_path: str, doc_name: str, starting_page: int = 
                 xref = img[0]
                 base_image = doc.extract_image(xref)
                 img_bytes = base_image["image"]
+                if not img_bytes:
+                    _log.warning(f"_extract_images_from_pdf: xref={xref} page={page_num+1} has empty img_bytes")
                 content_hash = hashlib.md5(img_bytes).hexdigest()
                 ext = base_image.get("ext", "png").lower()
                 if ext not in ("png", "jpg", "jpeg", "gif", "bmp", "webp"):
@@ -460,6 +465,7 @@ def _extract_images_from_pdf(pdf_path: str, doc_name: str, starting_page: int = 
                     "nearest_text_above": nearest_above,
                     "nearest_text_below": nearest_below,
                 })
+            _log.debug(f"_extract_images_from_pdf: page {page_num+1} processed, {len(img_list)} images found, cumulative={len(results)}")
 
     _log.debug(f"  _extract_images_from_pdf: done, {len(results)} images, mem={mem()}MB")
     return results, index

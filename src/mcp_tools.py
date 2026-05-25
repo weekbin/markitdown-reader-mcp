@@ -779,7 +779,7 @@ def get_processing_status(doc_name: str = None, file_path: str = None) -> str:
 
         slicing_mode = "paired" if index.get("pdf_slices") and index.get("docx_slices") else ("pdf_only" if index.get("pdf_slices") else "docx_only" if index.get("docx_slices") else "single")
 
-        return {
+        result = {
             "doc_name": doc_name,
             "needs_premium_ocr": needs_premium_ocr,
             "informational_only": informational_only,
@@ -790,6 +790,9 @@ def get_processing_status(doc_name: str = None, file_path: str = None) -> str:
             "next_steps": next_steps,
             "slicing_mode": slicing_mode,
         }
+        if slicing_mode == "docx_only":
+            result["diagnostic"] = "PDF images were skipped - check server logs for _extract_images_from_pdf warnings"
+        return result
 
     try:
         result = _with_read_lock(doc_name, _get_status)
@@ -1266,6 +1269,9 @@ def _read_paired_documents(
             combined_index["images"].extend(index.get("images", []))
             combined_index["image_hashes"].extend(index.get("image_hashes", []))
             print(f"  _read_paired: slice {i+1}/{len(pdf_slices)} done: {len(imgs)} imgs, total={len(all_images)}, mem={resource.getrusage(resource.RUSAGE_SELF).ru_maxrss // 1024}MB", flush=True)
+
+    if extract_images and not all_images:
+        _log.warning(f"_read_paired: force_refresh={force_refresh} extracted 0 images from {len(pdf_slices)} slices")
 
     if extract_images:
         _save_index(doc_name, combined_index)
