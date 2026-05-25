@@ -187,6 +187,7 @@ status = get_processing_status(doc_name)
 | Category | What it means | Action |
 |----------|---------------|--------|
 | `needs_premium_ocr` | Tesseract failed or skipped | ✅ Call premium OCR immediately |
+| `premium_completed` | Premium OCR already applied | ❌ No action needed — already processed |
 | `informational_only` | Small icon/logo, filtered from output.md | ❌ Safe to ignore — does not affect document understanding |
 | `has_tesseract_result` | Tesseract produced text | ⚠️ Optional — re-OCR if quality is insufficient |
 
@@ -222,6 +223,11 @@ updates = [
 ]
 update_batch_document_markdown(updates)
 ```
+
+### After Premium OCR Update
+
+When you call `update_batch_document_markdown`, the image's status changes to `premium_completed`.
+Subsequent `get_processing_status` calls will show it under `premium_completed` — you do NOT need to OCR it again.
 
 ### Image File Path Access
 

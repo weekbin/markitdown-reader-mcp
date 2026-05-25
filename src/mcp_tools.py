@@ -673,6 +673,7 @@ def get_processing_status(doc_name: str = None, file_path: str = None) -> str:
         needs_premium_ocr = []
         informational_only = []
         has_tesseract_result = []
+        premium_completed = []
 
         for img in images:
             ocr_status = img.get("ocr_status", "no_result")
@@ -695,18 +696,24 @@ def get_processing_status(doc_name: str = None, file_path: str = None) -> str:
             elif ocr_status == "no_result":
                 # Small image skipped by tesseract (<50KB) - MUST use premium OCR
                 needs_premium_ocr.append(img_info)
+            elif ocr_status == "premium_completed":
+                # Premium OCR already applied - no action needed
+                premium_completed.append(img_info)
             else:
                 # has_result - tesseract succeeded, caller decides whether to re-OCR
                 has_tesseract_result.append(img_info)
 
         total = len(images)
-        progress = (len(has_tesseract_result) / total * 100) if total > 0 else 0
+        completed_count = len(has_tesseract_result) + len(premium_completed)
+        progress = (completed_count / total * 100) if total > 0 else 0
 
         next_steps = []
         if needs_premium_ocr:
             next_steps.append(f"Use premium OCR for {len(needs_premium_ocr)} images (tesseract failed or skipped)")
         if informational_only:
             next_steps.append(f"{len(informational_only)} small/icon images are informational only - safe to ignore")
+        if premium_completed:
+            next_steps.append(f"{len(premium_completed)} images already have premium OCR - no action needed")
         if not next_steps:
             next_steps.append("All images have tesseract results - document is complete")
 
@@ -717,6 +724,7 @@ def get_processing_status(doc_name: str = None, file_path: str = None) -> str:
             "needs_premium_ocr": needs_premium_ocr,
             "informational_only": informational_only,
             "has_tesseract_result": has_tesseract_result,
+            "premium_completed": premium_completed,
             "progress": round(progress, 1),
             "total_images": total,
             "next_steps": next_steps,
@@ -1390,7 +1398,7 @@ def _update_image_ocr(doc_name: str, img_id: str, ocr_result: str, position_info
         img_found = False
         for img in index.get("images", []):
             if img.get("name") == img_id or img.get("md5") == img_id:
-                img["ocr_status"] = "completed"
+                img["ocr_status"] = "premium_completed"
                 img["ocr_result"] = ocr_result
                 img["ocr_source"] = "manual"
                 if position_info:
