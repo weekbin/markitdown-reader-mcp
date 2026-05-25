@@ -222,6 +222,16 @@ Images are stored at:
 
 Get from `get_cached_content(doc_name)` → look for `images` list, or read `index.json`.
 
+### Getting Latest Content After OCR Update
+
+After calling `update_batch_document_markdown`, the `output.md` file is **automatically rebuilt** with the new OCR text. To read the updated content:
+
+```python
+# Get the latest output.md with all updated OCR results
+result = get_cached_content(doc_name)
+# result["content"] contains the rebuilt output.md
+```
+
 ### 重要提醒
 
 - **Do NOT** call `retry_failed_images()` for quality OCR — tesseract is not the right tool
