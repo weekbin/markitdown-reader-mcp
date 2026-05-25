@@ -334,24 +334,26 @@ def _resize_image_if_needed(img_bytes: bytes, max_dim: int = 1280) -> bytes:
     否则直接返回原始 bytes。
     使用 PIL LANCZOS 重采样，保持灰度/RGB 模式。
     """
+    img = None
     try:
         from PIL import Image
         import io
         img = Image.open(io.BytesIO(img_bytes))
         w, h = img.size
         if w <= max_dim and h <= max_dim:
-            return img_bytes  # 不需要缩图
-        # 等比缩放
+            return img_bytes
         img.thumbnail((max_dim, max_dim), Image.LANCZOS)
         out = io.BytesIO()
-        # 保持原始格式；GIF 需要特殊处理保持动画
         save_fmt = img.format if img.format in ("PNG", "JPEG", "GIF", "BMP", "WEBP") else "PNG"
         if img.mode == "RGBA" and save_fmt == "JPEG":
             img = img.convert("RGB")
         img.save(out, format=save_fmt, optimize=True)
         return out.getvalue()
     except Exception:
-        return img_bytes  # 失败时保原图
+        return img_bytes
+    finally:
+        if img is not None:
+            img.close()
 
 
 def _extract_images_from_pdf(pdf_path: str, doc_name: str, starting_page: int = 1, force_refresh: bool = False) -> tuple[list[dict], dict]:
