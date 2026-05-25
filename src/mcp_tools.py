@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import resource
 import traceback
 from pathlib import Path
 from typing import Optional
@@ -1159,6 +1160,7 @@ def _read_paired_documents(
 
     _log.debug(f"  _read_paired: slicing PDF")
     pdf_slices = _slice_pdf(pdf_path, doc_name)
+    print(f"  _read_paired: PDF sliced into {len(pdf_slices)} slices, mem={resource.getrusage(resource.RUSAGE_SELF).ru_maxrss // 1024}MB", flush=True)
     _log.debug(f"  _read_paired: {len(pdf_slices)} PDF slices, mem={mem()}MB")
 
     all_images = []
@@ -1170,12 +1172,14 @@ def _read_paired_documents(
             starting_page = i * SLICE_PAGES + 1
             imgs, index = _extract_images_from_pdf(sl["path"], doc_name, starting_page, force_refresh)
             all_images.extend(imgs)
+            print(f"  _read_paired: slice {i+1}/{len(pdf_slices)} done: {len(imgs)} imgs, total={len(all_images)}, mem={resource.getrusage(resource.RUSAGE_SELF).ru_maxrss // 1024}MB", flush=True)
 
     if extract_images:
         _save_index(doc_name, index)
 
     _log.debug(f"  _read_paired: slicing DOCX")
     docx_slices = _slice_docx(docx_path, doc_name)
+    print(f"  _read_paired: DOCX sliced into {len(docx_slices)} slices, mem={resource.getrusage(resource.RUSAGE_SELF).ru_maxrss // 1024}MB", flush=True)
     _log.debug(f"  _read_paired: {len(docx_slices)} DOCX slices, mem={mem()}MB")
 
     text_parts = []
@@ -1200,6 +1204,7 @@ def _read_paired_documents(
         for img in all_images:
             img["is_small"] = _is_small_image(img["path"])
         all_images = [img for img in all_images if not img["is_small"]]
+        print(f"  _read_paired: after dedup: {len(all_images)} unique images, mem={resource.getrusage(resource.RUSAGE_SELF).ru_maxrss // 1024}MB", flush=True)
         _log.debug(f"  _read_paired: OCR on {len(all_images)} unique images")
         for img in all_images:
             if img["size"] < IMAGE_SIZE_THRESHOLD:
@@ -1213,6 +1218,7 @@ def _read_paired_documents(
     content_path = None
     if len(full_text) > 0:
         content_path = _get_doc_dir(doc_name) / "output.md"
+        print(f"  _read_paired: about to build MD: {len(all_images)} images, {len(full_text)} text chars, mem={resource.getrusage(resource.RUSAGE_SELF).ru_maxrss // 1024}MB", flush=True)
         md_content = _build_unified_md_output(full_text, all_images, doc_name, pdf_path)
         content_path.write_text(md_content, encoding="utf-8")
         written = True
@@ -1339,6 +1345,7 @@ def _build_unified_md_output(text: str, images: list[dict], doc_name: str, doc_p
             anchor_text = f"Small image on page {page}" if page else "Small image"
         result_lines.append(f"![]({img_path}){{.positioned {pos_str}}}")
         result_lines.append(f"Image: {anchor_text}\n")
+        img_idx += 1
 
     return "\n".join(result_lines)
 
