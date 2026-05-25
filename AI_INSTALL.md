@@ -105,11 +105,22 @@ After setup:
 ```
 /home/weekbin/.opencode/mcp/markitdown-reader/
 ├── .venv/               # Python virtual environment
-├── server.py            # MCP service entry point
+├── src/                  # Source modules
+│   ├── __init__.py
+│   ├── constants.py      # SLICE_PAGES, IMAGE_SIZE_THRESHOLD
+│   ├── storage.py       # File I/O, index.json, locks
+│   ├── parser.py        # PDF/DOCX extraction, image dedup
+│   ├── image.py         # Small image filter, OCR
+│   ├── callbacks.py     # HTTP callback POST
+│   ├── mcp_tools.py     # MCP tool implementations
+│   └── utils.py         # Helpers (mem(), _log)
+├── server.py             # Thin FastMCP entry point (~30 lines)
+├── AGENTS.md             # Developer architecture guide
+├── SKILL.md              # Caller guide
+├── comprehensive_test.py  # Test suite
 ├── requirements.txt
 ├── README.md
-├── SKILL.md
-└── REDESIGN.md
+└── AI_INSTALL.md
 ```
 
 Runtime cache (auto-created):
