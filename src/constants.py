@@ -7,3 +7,5 @@ SLICE_BLOCKS = 200  # DOCX 每200 block 一片
 IMAGE_SIZE_THRESHOLD = 50 * 1024  # 50KB
 BASE_DIR = Path.home() / ".opencode" / "markitdown"
 MAX_CHARS_RETURN = 0  # always write to file
+
+__version__ = "1.4.0"

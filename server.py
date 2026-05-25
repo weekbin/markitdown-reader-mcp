@@ -41,6 +41,8 @@ from src.mcp_tools import (
     get_processing_status,
     retry_failed_images,
     resume_document,
+    # Version
+    get_version,
     # Server instance (already configured with all tools)
     mcp,
 )

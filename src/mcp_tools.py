@@ -50,6 +50,20 @@ _log = logging.getLogger("markitdown")
 mcp = FastMCP("markitdown-reader")
 
 
+@mcp.tool()
+def get_version() -> str:
+    """
+    返回 markitdown-reader 的当前版本号。
+
+    用于确认服务端版本，方便定位兼容性问题。
+    """
+    from . import __version__
+    return json.dumps({
+        "version": __version__,
+        "service": "markitdown-reader"
+    }, ensure_ascii=False)
+
+
 # ─────────────────────────────────────────────────────────────────
 # MCP 工具
 # ─────────────────────────────────────────────────────────────────
