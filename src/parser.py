@@ -458,8 +458,8 @@ def _extract_images_from_pdf(pdf_path: str, doc_name: str, starting_page: int = 
     return results, index
 
 
-def _extract_images_from_docx(docx_path: str, doc_name: str, force_refresh: bool = False) -> list[dict]:
-    """从 DOCX 提取图片，返回图片信息列表（含rId）"""
+def _extract_images_from_docx(docx_path: str, doc_name: str, force_refresh: bool = False) -> tuple[list[dict], dict]:
+    """从 DOCX 提取图片，返回 (图片信息列表, index字典)"""
     _log.debug(f"  _extract_images_from_docx: opening {docx_path}")
     images_dir = _get_images_dir(doc_name)
     index = _load_index(doc_name)
@@ -515,7 +515,7 @@ def _extract_images_from_docx(docx_path: str, doc_name: str, force_refresh: bool
             })
 
     _log.debug(f"  _extract_images_from_docx: done, {len(results)} images, mem={mem()}MB")
-    return results
+    return results, index
 
 
 def _get_docx_image_anchor(docx_path: str, image_rId: str) -> dict:
