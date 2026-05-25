@@ -166,17 +166,29 @@ Every response includes `next_steps: [...]`. **必须检查此字段**，它提�
 Tesseract provides emergency OCR only for small images (<50KB). For quality-critical content
 (diagrams, complex tables, Chinese documents), use a premium OCR service (e.g., minimax token plan MCP).
 
-### Detection — Which Images Need Premium OCR?
+### Step 2 — Query Image Status
 
-After `read_document_pair`, check image anchors in `output.md`:
+Use `get_processing_status(doc_name)` to get structured guidance:
 
+```python
+status = get_processing_status(doc_name)
+# Returns:
+# {
+#   "needs_premium_ocr": [...],    # MUST process with premium OCR
+#   "informational_only": [...],   # Small icons/logos - can ignore
+#   "has_tesseract_result": [...], # Tesseract worked - decide based on quality needs
+#   "progress": 33.3,
+#   "next_steps": [...]
+# }
 ```
-← tesseract: "充电接口..."     → Low quality, caller can re-OCR with premium service
-← pending_premium_ocr         → Small image skipped by tesseract, caller must OCR
-← tesseract_failed            → Tesseract gave up, caller must OCR
-```
 
-Or query programmatically via `get_processing_status(doc_name)`.
+**Which images need premium OCR?**
+
+| Category | What it means | Action |
+|----------|---------------|--------|
+| `needs_premium_ocr` | Tesseract failed or skipped | ✅ Call premium OCR immediately |
+| `informational_only` | Small icon/logo, filtered from output.md | ❌ Safe to ignore — does not affect document understanding |
+| `has_tesseract_result` | Tesseract produced text | ⚠️ Optional — re-OCR if quality is insufficient |
 
 ### Step-by-Step Workflow
 
@@ -186,12 +198,10 @@ read_document_pair(pdf_path, docx_path)
 # Returns: text + image list + next_steps
 ```
 
-**Step 2**: Check which images need premium OCR
+**Step 2**: Query image status with structured categories
 ```python
-# Option A: Parse output.md for "pending_premium_ocr" markers
-# Option B: Query structured status
-get_processing_status(doc_name)
-# Returns: {pending_images: [{"img_id": "p11_i1", "size_kb": 24, "status": "pending"}, ...]}
+status = get_processing_status(doc_name)
+# Returns: {needs_premium_ocr: [...], informational_only: [...], has_tesseract_result: [...], ...}
 ```
 
 **Step 3**: Call premium OCR on each pending image
