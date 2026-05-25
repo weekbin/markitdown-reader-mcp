@@ -661,7 +661,9 @@ def get_processing_status(doc_name: str = None, file_path: str = None) -> str:
 
     def _get_status():
         index = _load_index(doc_name)
-        images = index.get("images", [])
+        all_index_images = index.get("images", [])
+        # Only count valid images (non-zero size), matching what callers receive
+        images = [img for img in all_index_images if img.get("size", 0) > 0]
 
         pending_images = []
         completed_images = []
