@@ -1,6 +1,23 @@
 # -*- coding: utf-8 -*-
 """markitdown-reader MCP Service - Thin entry point"""
 
+import logging
+import os
+
+# Configure logging to ~/.opencode/markitdown/logs/markitdown.log
+log_dir = os.path.expanduser("~/.opencode/markitdown/logs")
+os.makedirs(log_dir, exist_ok=True)
+log_file = os.path.join(log_dir, "markitdown.log")
+
+logging.basicConfig(
+    level=logging.DEBUG,
+    format="%(asctime)s [%(name)s] %(levelname)s %(message)s",
+    handlers=[
+        logging.FileHandler(log_file),
+        logging.StreamHandler()
+    ]
+)
+
 from mcp.server.fastmcp import FastMCP
 
 # Import all MCP tools from src.mcp_tools
