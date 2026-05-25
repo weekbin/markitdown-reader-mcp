@@ -356,7 +356,7 @@ def _resize_image_if_needed(img_bytes: bytes, max_dim: int = 1280) -> bytes:
             img.close()
 
 
-def _extract_images_from_pdf(pdf_path: str, doc_name: str, starting_page: int = 1, force_refresh: bool = False) -> tuple[list[dict], dict]:
+def _extract_images_from_pdf(pdf_path: str, doc_name: str, starting_page: int = 1, force_refresh: bool = False, page_range: tuple[int, int] | None = None) -> tuple[list[dict], dict]:
     """从 PDF 提取图片，返回图片信息列表（含大小/页码/MD5/bbox/local_page）"""
     import fitz
     _log.debug(f"_extract_images_from_pdf: doc={doc_name} page_start={starting_page} force_refresh={force_refresh}")
@@ -376,6 +376,8 @@ def _extract_images_from_pdf(pdf_path: str, doc_name: str, starting_page: int = 
         total_pages = len(doc)
         _log.debug(f"  _extract_images_from_pdf: {total_pages} pages, mem={mem()}MB")
         for page_num in range(len(doc)):
+            if page_range and (page_num < page_range[0] or page_num > page_range[1]):
+                continue
             if page_num % 20 == 0:
                 _log.debug(f"  _extract_images_from_pdf: page {page_num+1}/{total_pages}, mem={mem()}MB")
             page = doc[page_num]

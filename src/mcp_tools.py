@@ -1155,7 +1155,8 @@ def _read_single_document(
             text_parts.append(f"=== [{sl['id']}] ===\n{txt}")
             if extract_images:
                 starting_page = i * SLICE_PAGES + 1
-                imgs, index = _extract_images_from_pdf(sl["path"], doc_name, starting_page, force_refresh)
+                ending_page = starting_page + SLICE_PAGES - 1
+                imgs, index = _extract_images_from_pdf(file_path, doc_name, starting_page, force_refresh, page_range=(starting_page, ending_page))
                 all_images.extend(imgs)
 
     elif ext in (".docx", ".doc") or mode == "docx_only":
@@ -1264,7 +1265,8 @@ def _read_paired_documents(
             if i % 5 == 0:
                 _log.debug(f"  _read_paired: image slice {i}/{len(pdf_slices)}, mem={mem()}MB")
             starting_page = i * SLICE_PAGES + 1
-            imgs, index = _extract_images_from_pdf(sl["path"], doc_name, starting_page, force_refresh)
+            ending_page = starting_page + SLICE_PAGES - 1
+            imgs, index = _extract_images_from_pdf(pdf_path, doc_name, starting_page, force_refresh, page_range=(starting_page, ending_page))
             all_images.extend(imgs)
             combined_index["images"].extend(index.get("images", []))
             combined_index["image_hashes"].extend(index.get("image_hashes", []))
