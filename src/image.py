@@ -26,8 +26,8 @@ def _ocr_small_image(img_path: str) -> str:
     try:
         from PIL import Image
         import pytesseract
-        img = Image.open(img_path)
-        text = pytesseract.image_to_string(img, lang="chi_sim+eng")
-        return text.strip()
+        with Image.open(img_path) as img:
+            text = pytesseract.image_to_string(img, lang="chi_sim+eng")
+            return text.strip()
     except Exception:
         return ""

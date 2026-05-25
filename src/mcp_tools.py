@@ -31,7 +31,6 @@ from .parser import (
     _extract_images_from_docx,
     _extract_images_from_pdf,
     _get_docx_image_anchor,
-    _get_image_position_info,
     _is_pdf_by_magic,
     _read_docx_text,
     _read_generic_text,
@@ -304,10 +303,12 @@ def extract_images(file_path: str, page_range: str = "") -> str:
                             tmp.insert_pdf(doc, from_page=idx, to_page=idx)
                     tmp_path = tempfile.mktemp(suffix=".pdf")
                     tmp.save(tmp_path)
-            imgs = _extract_images_from_pdf(tmp_path, doc_name + "_range")
+            imgs, index = _extract_images_from_pdf(tmp_path, doc_name + "_range")
+            _save_index(doc_name + "_range", index)
             os.unlink(tmp_path)
         else:
-            imgs = _extract_images_from_pdf(file_path, doc_name)
+            imgs, index = _extract_images_from_pdf(file_path, doc_name)
+            _save_index(doc_name, index)
     else:
         imgs = _extract_images_from_docx(file_path, doc_name)
 
@@ -962,13 +963,7 @@ def _read_slices_direct(
             if is_pdf:
                 slice_idx = path_to_index.get(path, 0)
                 starting_page = slice_idx * SLICE_PAGES + 1
-                imgs = _extract_images_from_pdf(path, doc_name, starting_page, force_refresh)
-                for img in imgs:
-                    if img.get("bbox"):
-                        pos_info = _get_image_position_info(path, img["local_page"], img["bbox"])
-                        img["y"] = pos_info.get("y", 0)
-                        img["nearest_text_above"] = pos_info.get("nearest_text_above", "")
-                        img["nearest_text_below"] = pos_info.get("nearest_text_below", "")
+                imgs, index = _extract_images_from_pdf(path, doc_name, starting_page, force_refresh)
             else:
                 imgs = _extract_images_from_docx(path, doc_name, force_refresh)
                 for img in imgs:
@@ -980,6 +975,9 @@ def _read_slices_direct(
 
     full_text = "\n\n".join(text_parts)
     _log.debug(f"  _read_slices_direct: done, {len(full_text)} chars, {len(found_ids)} slices")
+
+    if extract_images and is_pdf:
+        _save_index(doc_name, index)
 
     if extract_images:
         seen_paths: set[str] = set()
@@ -1052,6 +1050,7 @@ def _read_single_document(
     slices = []
     text_parts = []
     all_images = []
+    index = None
 
     if ext == ".pdf" or (mode in ("auto", "pdf_only") and _is_pdf_by_magic(file_path)):
         slices = _slice_pdf(file_path, doc_name)
@@ -1063,13 +1062,7 @@ def _read_single_document(
             text_parts.append(f"=== [{sl['id']}] ===\n{txt}")
             if extract_images:
                 starting_page = i * SLICE_PAGES + 1
-                imgs = _extract_images_from_pdf(sl["path"], doc_name, starting_page, force_refresh)
-                for img in imgs:
-                    if img.get("bbox"):
-                        pos_info = _get_image_position_info(sl["path"], img["local_page"], img["bbox"])
-                        img["y"] = pos_info.get("y", 0)
-                        img["nearest_text_above"] = pos_info.get("nearest_text_above", "")
-                        img["nearest_text_below"] = pos_info.get("nearest_text_below", "")
+                imgs, index = _extract_images_from_pdf(sl["path"], doc_name, starting_page, force_refresh)
                 all_images.extend(imgs)
 
     elif ext in (".docx", ".doc") or mode == "docx_only":
@@ -1092,6 +1085,9 @@ def _read_single_document(
     else:
         txt = _read_generic_text(file_path)
         text_parts.append(txt)
+
+    if extract_images and index is not None:
+        _save_index(doc_name, index)
 
     full_text = "\n\n".join(text_parts)
     _log.debug(f"  _read_single: text done, {len(full_text)} chars, mem={mem()}MB")
@@ -1172,14 +1168,11 @@ def _read_paired_documents(
             if i % 5 == 0:
                 _log.debug(f"  _read_paired: image slice {i}/{len(pdf_slices)}, mem={mem()}MB")
             starting_page = i * SLICE_PAGES + 1
-            imgs = _extract_images_from_pdf(sl["path"], doc_name, starting_page, force_refresh)
-            for img in imgs:
-                if img.get("bbox"):
-                    pos_info = _get_image_position_info(sl["path"], img["local_page"], img["bbox"])
-                    img["y"] = pos_info.get("y", 0)
-                    img["nearest_text_above"] = pos_info.get("nearest_text_above", "")
-                    img["nearest_text_below"] = pos_info.get("nearest_text_below", "")
+            imgs, index = _extract_images_from_pdf(sl["path"], doc_name, starting_page, force_refresh)
             all_images.extend(imgs)
+
+    if extract_images:
+        _save_index(doc_name, index)
 
     _log.debug(f"  _read_paired: slicing DOCX")
     docx_slices = _slice_docx(docx_path, doc_name)
@@ -1264,6 +1257,7 @@ def _build_unified_md_output(text: str, images: list[dict], doc_name: str, doc_p
       ![](path/to/img.png){.positioned page=1 y=245}
       Image: OCR result or "see nearby content"
     """
+    import re
     # 按 page 和 y 坐标排序图片，以便按序插入
     sorted_images = sorted(images, key=lambda img: (img.get("page", 0), img.get("y", 0)))
 
@@ -1272,7 +1266,6 @@ def _build_unified_md_output(text: str, images: list[dict], doc_name: str, doc_p
     current_section = {"page": None, "lines": []}
     for line in text.split("\n"):
         # 检测页标记：=== [px-y] ===
-        import re
         m = re.match(r"=== \[p(\d+)-\d+\] ===", line)
         if m:
             if current_section["lines"]:

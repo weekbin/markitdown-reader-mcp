@@ -145,7 +145,12 @@ def _slice_docx(src: str, doc_name: str, blocks_per_slice: int = SLICE_BLOCKS, t
 
     with zipfile.ZipFile(src, "r") as z:
         doc_xml = z.read("word/document.xml")
-        all_items = {item: z.read(item) for item in z.namelist()}
+        # 只读取非媒体文件的元数据，媒体文件延迟加载
+        all_items = {}
+        for item in z.namelist():
+            if item.startswith("word/media/") or item.endswith(".png") or item.endswith(".jpg") or item.endswith(".jpeg") or item.endswith(".gif") or item.endswith(".bmp"):
+                continue  # 延迟加载大媒体文件
+            all_items[item] = z.read(item)
     tree = etree.fromstring(doc_xml)
     body = tree.find(f"{{{W}}}body")
 
@@ -181,6 +186,11 @@ def _slice_docx(src: str, doc_name: str, blocks_per_slice: int = SLICE_BLOCKS, t
                     zout.writestr(item, etree.tostring(tree))
                 else:
                     zout.writestr(item, data)
+            # 媒体文件延迟写入
+            with zipfile.ZipFile(src, "r") as zsrc:
+                for item in zsrc.namelist():
+                    if item.startswith("word/media/"):
+                        zout.writestr(item, zsrc.read(item))
 
         slices.append({
             "id": f"b{i + 1}-{end}",
@@ -188,12 +198,6 @@ def _slice_docx(src: str, doc_name: str, blocks_per_slice: int = SLICE_BLOCKS, t
             "blocks": (i + 1, end),
             "total": len(blocks)
         })
-        if slice_idx % 5 == 0:
-            index = _load_index(doc_name)
-            existing_pdf = index.get("pdf_slices", [])
-            index["pdf_slices"] = existing_pdf
-            index["docx_slices"] = slices
-            _save_index(doc_name, index)
     index = _load_index(doc_name)
     existing_pdf = index.get("pdf_slices", [])
     index["pdf_slices"] = existing_pdf
@@ -350,7 +354,7 @@ def _resize_image_if_needed(img_bytes: bytes, max_dim: int = 1280) -> bytes:
         return img_bytes  # 失败时保原图
 
 
-def _extract_images_from_pdf(pdf_path: str, doc_name: str, starting_page: int = 1, force_refresh: bool = False) -> list[dict]:
+def _extract_images_from_pdf(pdf_path: str, doc_name: str, starting_page: int = 1, force_refresh: bool = False) -> tuple[list[dict], dict]:
     """从 PDF 提取图片，返回图片信息列表（含大小/页码/MD5/bbox/local_page）"""
     import fitz
     _log.debug(f"  _extract_images_from_pdf: opening {pdf_path}")
@@ -379,6 +383,10 @@ def _extract_images_from_pdf(pdf_path: str, doc_name: str, starting_page: int = 
                 if rects:
                     img_rects[xref] = rects[0].rect if hasattr(rects[0], 'rect') else rects[0]
 
+            # Get text blocks for position info ONCE per page (avoid re-opening)
+            text_dict = page.get_text("dict")
+            blocks = text_dict.get("blocks", [])
+
             original_page = starting_page + page_num
             for img_index, img in enumerate(img_list):
                 xref = img[0]
@@ -394,6 +402,28 @@ def _extract_images_from_pdf(pdf_path: str, doc_name: str, starting_page: int = 
 
                 bbox = img_rects.get(xref)
                 bbox_tuple = (bbox.x0, bbox.y0, bbox.x1, bbox.y1) if bbox else None
+
+                # Compute position info from cached text blocks (avoid re-opening PDF)
+                img_y = bbox.y0 if bbox else 0
+                nearest_above = ""
+                nearest_below = ""
+                min_dist_above = float("inf")
+                min_dist_below = float("inf")
+                for block in blocks:
+                    if block.get("type") == 0:
+                        for line in block.get("lines", []):
+                            for span in line.get("spans", []):
+                                span_y = span.get("origin", (0, 0))[1]
+                                span_text = span.get("text", "").strip()
+                                if not span_text:
+                                    continue
+                                dist = img_y - span_y
+                                if dist > 0 and dist < min_dist_above:
+                                    min_dist_above = dist
+                                    nearest_above = span_text
+                                elif dist < 0 and -dist < min_dist_below:
+                                    min_dist_below = -dist
+                                    nearest_below = span_text
 
                 is_new = content_hash not in seen_hashes
                 if is_new:
@@ -417,11 +447,13 @@ def _extract_images_from_pdf(pdf_path: str, doc_name: str, starting_page: int = 
                     "xref": xref,
                     "bbox": bbox_tuple,
                     "local_page": page_num + 1,
+                    "y": img_y,
+                    "nearest_text_above": nearest_above,
+                    "nearest_text_below": nearest_below,
                 })
 
     _log.debug(f"  _extract_images_from_pdf: done, {len(results)} images, mem={mem()}MB")
-    _save_index(doc_name, index)
-    return results
+    return results, index
 
 
 def _extract_images_from_docx(docx_path: str, doc_name: str, force_refresh: bool = False) -> list[dict]:
@@ -481,7 +513,6 @@ def _extract_images_from_docx(docx_path: str, doc_name: str, force_refresh: bool
             })
 
     _log.debug(f"  _extract_images_from_docx: done, {len(results)} images, mem={mem()}MB")
-    _save_index(doc_name, index)
     return results
 
 
