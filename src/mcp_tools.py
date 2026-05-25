@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import resource
 import traceback
 from pathlib import Path
@@ -1378,6 +1379,7 @@ def _update_image_ocr(doc_name: str, img_id: str, ocr_result: str, position_info
         if not img_found:
             return False
         _save_index_nolock(doc_name, index)
+        _rebuild_output_md(doc_name)
         return True
     finally:
         _unlock_file(lock_fd)
@@ -1392,19 +1394,34 @@ def _rebuild_output_md(doc_name: str):
     if not content_path.exists():
         return
 
-    existing_text = content_path.read_text(encoding="utf-8")
-
+    # Build ocr_map: {img_path: ocr_result} from index
     ocr_map = {}
     for img in index.get("images", []):
         if img.get("ocr_result"):
             img_path = img.get("path", "")
             ocr_map[img_path] = img.get("ocr_result", "")
 
+    existing_text = content_path.read_text(encoding="utf-8")
     lines = existing_text.split("\n")
+
     result_lines = []
+    current_img_path = None
+
     for line in lines:
-        if line.strip().startswith("Image:") and not line.strip().endswith("see nearby content"):
+        if line.strip().startswith("![]("):
+            # This is an image anchor line — extract path
+            # Format: ![](/path/to/img.png){.positioned page=N y=Y}
+            m = re.search(r'!\[\]\(([^)]+)\)', line)
+            if m:
+                current_img_path = m.group(1)
             result_lines.append(line)
+        elif line.strip().startswith("Image:") and current_img_path:
+            # Replace Image: line with updated OCR or preserve
+            if current_img_path in ocr_map:
+                result_lines.append(f"Image: {ocr_map[current_img_path]}")
+            else:
+                result_lines.append(line)
+            current_img_path = None
         else:
             result_lines.append(line)
 
