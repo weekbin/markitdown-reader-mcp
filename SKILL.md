@@ -148,6 +148,16 @@ read_document_pair(pdf_path, docx_path)  # ✅ 一次调用，内部自动分片
 
 若文档很大导致超时 → 使用 `fast=True` 先拿文字，图片单独提取。
 
+## force_refresh=True
+
+`force_refresh=True` will:
+- Delete all cached slices, images, and index for this document
+- Re-extract all images directly from the original PDF (by page range, not slice files)
+- Run Tesseract on small images (<50KB)
+- Rebuild output.md
+
+Use `delete_cache(doc_name)` for a guaranteed clean slate before `read_document_pair(force_refresh=True)`.
+
 ## 出错恢复
 
 | 工具 | 用途 |
@@ -155,6 +165,7 @@ read_document_pair(pdf_path, docx_path)  # ✅ 一次调用，内部自动分片
 | `get_processing_status(doc_name)` | 查看 pending/failed 图片数 |
 | `retry_failed_images(doc_name)` | 重试失败图片的 OCR |
 | `resume_document(file_path)` | 从上次断点继续处理 |
+| `delete_cache(doc_name)` | 删除文档所有缓存，重新开始 |
 
 ## next_steps 字段
 
@@ -174,22 +185,25 @@ Use `get_processing_status(doc_name)` to get structured guidance:
 status = get_processing_status(doc_name)
 # Returns:
 # {
-#   "needs_premium_ocr": [...],    # MUST process with premium OCR
-#   "informational_only": [...],   # Small icons/logos - can ignore
-#   "has_tesseract_result": [...], # Tesseract worked - decide based on quality needs
+#   "needs_premium_ocr": [...],      # Tesseract failed or skipped — MUST call premium OCR
+#   "premium_completed": [...],       # Already OCR'd with premium — do NOT re-OCR
+#   "informational_only": [...],      # Small icon/logo — does not affect understanding
+#   "has_tesseract_result": [...],    # Tesseract succeeded — decide based on quality
 #   "progress": 33.3,
+#   "total_images": 10,
+#   "slicing_mode": "paired",
 #   "next_steps": [...]
 # }
 ```
 
 **Which images need premium OCR?**
 
-| Category | What it means | Action |
-|----------|---------------|--------|
-| `needs_premium_ocr` | Tesseract failed or skipped | ✅ Call premium OCR immediately |
-| `premium_completed` | Premium OCR already applied | ❌ No action needed — already processed |
-| `informational_only` | Small icon/logo, filtered from output.md | ❌ Safe to ignore — does not affect document understanding |
-| `has_tesseract_result` | Tesseract produced text | ⚠️ Optional — re-OCR if quality is insufficient |
+| Category | When | Action |
+|----------|-------|--------|
+| `needs_premium_ocr` | Tesseract failed or was skipped | ✅ Must call premium OCR |
+| `premium_completed` | You already submitted OCR results | ❌ Do NOT re-OCR — wastes API calls |
+| `informational_only` | Small icon/logo (<32×32px or <1KB) | ❌ Safe to ignore |
+| `has_tesseract_result` | Tesseract produced text | ⚠️ Optional — re-OCR if quality insufficient |
 
 ### Step-by-Step Workflow
 
@@ -240,10 +254,12 @@ Get from `get_cached_content(doc_name)` → look for `images` list, or read `ind
 
 ### Getting Latest Content After OCR Update
 
-After calling `update_batch_document_markdown`, the `output.md` file is **automatically rebuilt** with the new OCR text. To read the updated content:
+After calling `update_batch_document_markdown`, the `output.md` is **automatically rebuilt** with new OCR text.
+The image's `ocr_status` changes to `premium_completed` — subsequent `get_processing_status` calls
+will show it under `premium_completed`, so you know NOT to OCR it again.
 
 ```python
-# Get the latest output.md with all updated OCR results
+# Get updated content
 result = get_cached_content(doc_name)
 # result["content"] contains the rebuilt output.md
 ```
@@ -254,6 +270,17 @@ result = get_cached_content(doc_name)
 - **Use** `update_batch_document_markdown` to commit premium OCR results
 - **Image anchors** in `output.md` will update automatically after batch update
 - **Small images** (icons, logos, <32x32px or <1KB) are excluded from `output.md` but saved to disk for audit
+
+## 删除文档缓存
+
+如果文档提取结果异常或需要强制重新处理，使用 `delete_cache`：
+
+```python
+result = delete_cache(doc_name)
+# {"success": true, "doc_name": "...", "message": "Cache deleted successfully"}
+```
+
+**注意**：删除后文档将以全新状态重新处理，所有 OCR 结果将丢失。
 
 ## 目录结构
 
