@@ -9,14 +9,25 @@ log_dir = os.path.expanduser("~/.opencode/markitdown/logs")
 os.makedirs(log_dir, exist_ok=True)
 log_file = os.path.join(log_dir, "markitdown.log")
 
+# Configure root logger as a fallback for libraries that use the root logger.
 logging.basicConfig(
     level=logging.DEBUG,
     format="%(asctime)s [%(name)s] %(levelname)s %(message)s",
-    handlers=[
-        logging.FileHandler(log_file),
-        logging.StreamHandler()
-    ]
+    handlers=[logging.FileHandler(log_file), logging.StreamHandler()],
 )
+
+# Also configure the "markitdown" named logger with its own FileHandler.
+# This ensures our log records always reach markitdown.log even if the MCP
+# framework modifies or replaces root logger handlers at runtime.
+_fmt = logging.Formatter("%(asctime)s [%(name)s] %(levelname)s %(message)s")
+_fh = logging.FileHandler(log_file)
+_fh.setFormatter(_fmt)
+_markitdown_log = logging.getLogger("markitdown")
+_markitdown_log.setLevel(logging.DEBUG)
+_markitdown_log.addHandler(_fh)
+# Keep propagate=True so root logger (stderr) also receives the records.
+# The root FileHandler and _fh both point to the same file; that's fine because
+# each handler opens the file in append mode and Python's logging is thread-safe.
 
 from mcp.server.fastmcp import FastMCP
 

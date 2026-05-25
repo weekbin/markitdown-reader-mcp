@@ -58,19 +58,28 @@ def get_version() -> str:
     用于确认服务端版本，方便定位兼容性问题。
     """
     from . import __version__
-    return json.dumps({
-        "version": __version__,
-        "service": "markitdown-reader"
-    }, ensure_ascii=False)
+
+    return json.dumps(
+        {"version": __version__, "service": "markitdown-reader"}, ensure_ascii=False
+    )
 
 
 # ─────────────────────────────────────────────────────────────────
 # MCP 工具
 # ─────────────────────────────────────────────────────────────────
 
+
 @mcp.tool()
-def read_document(file_path: str, fast: bool = False, slice_ids: Optional[list[str]] = None, force_refresh: bool = False, callback_url: str = "") -> str:
-    _log.debug(f"read_document CALLED file={file_path} fast={fast} slice_ids={slice_ids} force_refresh={force_refresh} callback_url={callback_url} mem={mem()}MB")
+def read_document(
+    file_path: str,
+    fast: bool = False,
+    slice_ids: Optional[list[str]] = None,
+    force_refresh: bool = False,
+    callback_url: str = "",
+) -> str:
+    _log.debug(
+        f"read_document CALLED file={file_path} fast={fast} slice_ids={slice_ids} force_refresh={force_refresh} callback_url={callback_url} mem={mem()}MB"
+    )
     if not os.path.isfile(file_path):
         return f"[错误] 文件不存在: {file_path}"
 
@@ -85,20 +94,40 @@ def read_document(file_path: str, fast: bool = False, slice_ids: Optional[list[s
 
     try:
         # 优先判断配对：有配对文件时，始终走 _read_paired_documents
-        #（即使提供了 slice_ids，也通过配对路径读取，以保证图片提取和 index 类型正确）
+        # （即使提供了 slice_ids，也通过配对路径读取，以保证图片提取和 index 类型正确）
         if paired is not None:
             ext = Path(file_path).suffix.lower()
             if ext == ".pdf":
-                result = _read_paired_documents(file_path, paired, extract_images=extract_imgs, callback_url=callback_url, force_refresh=force_refresh)
+                result = _read_paired_documents(
+                    file_path,
+                    paired,
+                    extract_images=extract_imgs,
+                    callback_url=callback_url,
+                    force_refresh=force_refresh,
+                )
             else:
-                result = _read_paired_documents(paired, file_path, extract_images=extract_imgs, callback_url=callback_url, force_refresh=force_refresh)
+                result = _read_paired_documents(
+                    paired,
+                    file_path,
+                    extract_images=extract_imgs,
+                    callback_url=callback_url,
+                    force_refresh=force_refresh,
+                )
         elif slice_ids is not None:
             ext = Path(file_path).suffix.lower()
             is_pdf = ext == ".pdf" or _is_pdf_by_magic(file_path)
-            result = _read_slices_direct(doc_name, slice_ids, is_pdf, extract_imgs, force_refresh=force_refresh)
+            result = _read_slices_direct(
+                doc_name, slice_ids, is_pdf, extract_imgs, force_refresh=force_refresh
+            )
             result["paired"] = False
         else:
-            result = _read_single_document(file_path, doc_name, extract_images=extract_imgs, callback_url=callback_url, force_refresh=force_refresh)
+            result = _read_single_document(
+                file_path,
+                doc_name,
+                extract_images=extract_imgs,
+                callback_url=callback_url,
+                force_refresh=force_refresh,
+            )
     except Exception:
         _log.exception(f"  read_document CRASHED: {traceback.format_exc()}")
         return f"[错误] 处理失败:\n{traceback.format_exc()}"
@@ -108,9 +137,9 @@ def read_document(file_path: str, fast: bool = False, slice_ids: Optional[list[s
     ocr_count = 0
     for img in result["images"]:
         size_kb = img["size"] // 1024
-        ocr_hint = f" [OCR: {img.get('ocr', '')}]" if img.get('ocr') else ""
+        ocr_hint = f" [OCR: {img.get('ocr', '')}]" if img.get("ocr") else ""
         img_lines.append(f"[图片: file://{img['path']}] ({size_kb}KB){ocr_hint}")
-        if img.get('ocr'):
+        if img.get("ocr"):
             ocr_count += 1
 
     # 配对模式下同时显示 PDF 和 DOCX 分片信息
@@ -126,48 +155,66 @@ def read_document(file_path: str, fast: bool = False, slice_ids: Optional[list[s
     if ocr_count > 0:
         img_summary += f"（含{ocr_count}张已OCR）"
 
-    paired_line = (
-        f"配对: {'是 → ' + Path(result['paired_file']).name if result['paired'] else '未找到配对文件'}\n"
-    )
+    paired_line = f"配对: {'是 → ' + Path(result['paired_file']).name if result['paired'] else '未找到配对文件'}\n"
     if not result["paired"]:
         ext = Path(file_path).suffix.lower()
         if ext == ".pdf":
             paired_line += (
                 "⚠️ 只提供 PDF: 文字可能乱码（CID-font），图片可正常提取\n"
                 "提示: 如有 DOCX 版本，建议 read_document_pair(pdf, docx)\n"
-                + ("⚠️ fast=True 已跳过图片提取，图片请用 extract_images() 单独提取\n" if fast else "      继续干活...\n")
+                + (
+                    "⚠️ fast=True 已跳过图片提取，图片请用 extract_images() 单独提取\n"
+                    if fast
+                    else "      继续干活...\n"
+                )
             )
         else:
             paired_line += (
                 "⚠️ 只提供 DOCX: 文字表格可正常提取，可能无法提取图片\n"
                 "提示: 如有 PDF 版本，建议 read_document_pair(pdf, docx)\n"
-                + ("⚠️ fast=True 已跳过图片提取，图片请用 extract_images() 单独提取\n" if fast else "      继续干活...\n")
+                + (
+                    "⚠️ fast=True 已跳过图片提取，图片请用 extract_images() 单独提取\n"
+                    if fast
+                    else "      继续干活...\n"
+                )
             )
 
     # 结构化状态 JSON（agent 可直接解析）
     pdf_slices_status = result.get("pdf_slices", [])
     docx_slices_status = result.get("docx_slices", result["slices"])
-    
+
     next_steps = []
     if result["paired"] and not result["written"]:
         next_steps.append("Use read_document_pair() for optimal PDF+DOCX processing")
     if not result["paired"] and result["images"]:
-        next_steps.append(f"Consider using extract_images() to re-extract with different settings")
+        next_steps.append(
+            f"Consider using extract_images() to re-extract with different settings"
+        )
     if ocr_count == 0 and result["images"]:
-        next_steps.append(f"Small images may benefit from OCR - try ocr_image() on specific images")
+        next_steps.append(
+            f"Small images may benefit from OCR - try ocr_image() on specific images"
+        )
     if result["written"]:
-        next_steps.append(f"Content written to {result['content_path']} - read for full text")
+        next_steps.append(
+            f"Content written to {result['content_path']} - read for full text"
+        )
     if result["slices"]:
-        next_steps.append(f"Use slice_ids in read_document() to re-read specific slices")
-    
+        next_steps.append(
+            f"Use slice_ids in read_document() to re-read specific slices"
+        )
+
     status = {
         "doc": Path(file_path).name,
         "paired": result["paired"],
-        "paired_file": Path(result["paired_file"]).name if result["paired_file"] else None,
+        "paired_file": (
+            Path(result["paired_file"]).name if result["paired_file"] else None
+        ),
         "need_pairing": not result["paired"],
         "fast": fast,
         "images_extracted": extract_imgs,
-        "slice_count": len(result["slices"]),  # 兼容：PDF 单文档时为 PDF 片数，配对时为 DOCX 片数
+        "slice_count": len(
+            result["slices"]
+        ),  # 兼容：PDF 单文档时为 PDF 片数，配对时为 DOCX 片数
         "pdf_slice_count": len(pdf_slices_status),
         "docx_slice_count": len(docx_slices_status),
         "slices": [s["id"] for s in result["slices"]],
@@ -178,8 +225,24 @@ def read_document(file_path: str, fast: bool = False, slice_ids: Optional[list[s
         "content_written": result["written"],
         "content_path": result["content_path"],
         "chars": len(result["text"]),
-        "mode": "paired" if result["paired"] else ("pdf_single" if (Path(file_path).suffix.lower() == ".pdf") else "docx_single"),
-        "slicing_mode": "paired" if result["paired"] else ("pdf_only" if (Path(file_path).suffix.lower() == ".pdf") else "docx_only"),
+        "mode": (
+            "paired"
+            if result["paired"]
+            else (
+                "pdf_single"
+                if (Path(file_path).suffix.lower() == ".pdf")
+                else "docx_single"
+            )
+        ),
+        "slicing_mode": (
+            "paired"
+            if result["paired"]
+            else (
+                "pdf_only"
+                if (Path(file_path).suffix.lower() == ".pdf")
+                else "docx_only"
+            )
+        ),
         "next_steps": next_steps,
     }
     status_json = json.dumps(status, ensure_ascii=False)
@@ -219,9 +282,13 @@ def read_document(file_path: str, fast: bool = False, slice_ids: Optional[list[s
 
 
 @mcp.tool()
-def read_document_pair(pdf_path: str, docx_path: str, force_refresh: bool = False, callback_url: str = "") -> str:
+def read_document_pair(
+    pdf_path: str, docx_path: str, force_refresh: bool = False, callback_url: str = ""
+) -> str:
     """显式配对读取：PDF 提取图片，DOCX 提取文字和表格"""
-    _log.debug(f"read_document_pair CALLED pdf={pdf_path} docx={docx_path} callback_url={callback_url} mem={mem()}MB")
+    _log.debug(
+        f"read_document_pair CALLED pdf={pdf_path} docx={docx_path} callback_url={callback_url} mem={mem()}MB"
+    )
     if not os.path.isfile(pdf_path):
         return f"[错误] PDF 不存在: {pdf_path}"
     if not os.path.isfile(docx_path):
@@ -231,7 +298,9 @@ def read_document_pair(pdf_path: str, docx_path: str, force_refresh: bool = Fals
     if force_refresh:
         _move_current_to_history(doc_name)
     try:
-        result = _read_paired_documents(pdf_path, docx_path, callback_url=callback_url, force_refresh=force_refresh)
+        result = _read_paired_documents(
+            pdf_path, docx_path, callback_url=callback_url, force_refresh=force_refresh
+        )
     except Exception:
         _log.exception(f"  read_document_pair CRASHED: {traceback.format_exc()}")
         return f"[错误] 处理失败:\n{traceback.format_exc()}"
@@ -240,9 +309,9 @@ def read_document_pair(pdf_path: str, docx_path: str, force_refresh: bool = Fals
     ocr_count = 0
     for img in result["images"]:
         size_kb = img["size"] // 1024
-        ocr_hint = f" [OCR: {img.get('ocr', '')}]" if img.get('ocr') else ""
+        ocr_hint = f" [OCR: {img.get('ocr', '')}]" if img.get("ocr") else ""
         img_lines.append(f"[图片: file://{img['path']}] ({size_kb}KB){ocr_hint}")
-        if img.get('ocr'):
+        if img.get("ocr"):
             ocr_count += 1
 
     pdf_info = ", ".join(s["id"] for s in result["pdf_slices"])
@@ -277,9 +346,13 @@ def read_document_pair(pdf_path: str, docx_path: str, force_refresh: bool = Fals
 
     next_steps = []
     if ocr_count == 0 and result["images"]:
-        next_steps.append("Small images may benefit from OCR - try ocr_image() on specific images")
+        next_steps.append(
+            "Small images may benefit from OCR - try ocr_image() on specific images"
+        )
     if result["written"]:
-        next_steps.append(f"Content written to {result['content_path']} - read for full text")
+        next_steps.append(
+            f"Content written to {result['content_path']} - read for full text"
+        )
     if result["pdf_slices"]:
         next_steps.append(f"Use slice_document() to see PDF page distribution")
 
@@ -296,6 +369,7 @@ def extract_images(file_path: str, page_range: str = "") -> str:
     page_range: 可选，如 "1-5" 或 "1,3,5"
     """
     import tempfile
+
     if not os.path.isfile(file_path):
         return f"[错误] 文件不存在: {file_path}"
 
@@ -305,6 +379,7 @@ def extract_images(file_path: str, page_range: str = "") -> str:
     if ext == ".pdf" or _is_pdf_by_magic(file_path):
         if page_range:
             import fitz
+
             with fitz.open(file_path) as doc:
                 indices = []
                 for part in page_range.split(","):
@@ -333,7 +408,7 @@ def extract_images(file_path: str, page_range: str = "") -> str:
     lines = [f"共 {len(imgs)} 张图片:\n"]
     for img in imgs:
         size_kb = img["size"] // 1024
-        ocr_hint = f" [OCR] {img.get('ocr', '')}" if img.get('ocr') else ""
+        ocr_hint = f" [OCR] {img.get('ocr', '')}" if img.get("ocr") else ""
         lines.append(f"[图片: file://{img['path']}] ({size_kb}KB){ocr_hint}")
 
     next_steps = [
@@ -341,7 +416,9 @@ def extract_images(file_path: str, page_range: str = "") -> str:
         "Use read_document() to extract text alongside images",
     ]
     if imgs:
-        next_steps.append(f"Images stored in cache - use get_cached_content('{doc_name}') to retrieve")
+        next_steps.append(
+            f"Images stored in cache - use get_cached_content('{doc_name}') to retrieve"
+        )
 
     lines.append("\n下一步建议:")
     for s in next_steps:
@@ -363,7 +440,10 @@ def ocr_image(image_path: str) -> str:
     text = _ocr_small_image(image_path)
     if text:
         _log.debug(f"ocr_image: OK, {len(text)} chars")
-        result = text + "\n\n[next_steps]\nUse update_document_markdown() to save OCR result to document index"
+        result = (
+            text
+            + "\n\n[next_steps]\nUse update_document_markdown() to save OCR result to document index"
+        )
     else:
         _log.debug(f"ocr_image: no text found")
         result = "[next_steps]\nNo text found - image may be empty or need manual transcription"
@@ -387,47 +467,59 @@ def slice_document(file_path: str, pages_per_slice: int = 5) -> str:
     try:
         if ext == ".pdf" or _is_pdf_by_magic(file_path):
             import fitz
+
             with fitz.open(file_path) as doc:
                 total = len(doc)
                 slices = []
                 for i in range(0, total, pages_per_slice):
                     end = min(i + pages_per_slice, total)
-                    slices.append({
-                        "slice_id": f"p{i+1}-{end}",
-                        "page_range": f"{i+1}-{end}",
-                        "page_count": end - i,
-                        "slice_index": i // pages_per_slice,
-                    })
+                    slices.append(
+                        {
+                            "slice_id": f"p{i+1}-{end}",
+                            "page_range": f"{i+1}-{end}",
+                            "page_count": end - i,
+                            "slice_index": i // pages_per_slice,
+                        }
+                    )
                 result_json = {
                     "doc_name": doc_name,
                     "total_pages": total,
                     "slice_count": len(slices),
                     "slices": slices,
                     "paired_file": _find_paired_file(file_path),
-                    "next_steps": ["Use read_document() with slice_ids to read specific slices", "Use extract_images() to extract images from the document"],
+                    "next_steps": [
+                        "Use read_document() with slice_ids to read specific slices",
+                        "Use extract_images() to extract images from the document",
+                    ],
                 }
             return json.dumps(result_json, ensure_ascii=False, indent=2)
 
         elif ext in (".docx", ".doc"):
             from docx import Document
+
             doc = Document(file_path)
             blocks = sum(1 for _ in doc.element.body)
             slices = []
             for i in range(0, blocks, SLICE_BLOCKS):
                 end = min(i + SLICE_BLOCKS, blocks)
-                slices.append({
-                    "slice_id": f"b{i+1}-{end}",
-                    "block_range": f"{i+1}-{end}",
-                    "block_count": end - i,
-                    "slice_index": i // SLICE_BLOCKS,
-                })
+                slices.append(
+                    {
+                        "slice_id": f"b{i+1}-{end}",
+                        "block_range": f"{i+1}-{end}",
+                        "block_count": end - i,
+                        "slice_index": i // SLICE_BLOCKS,
+                    }
+                )
             result_json = {
                 "doc_name": doc_name,
                 "total_blocks": blocks,
                 "slice_count": len(slices),
                 "slices": slices,
                 "paired_file": _find_paired_file(file_path),
-                "next_steps": ["Use read_document() with slice_ids to read specific slices", "Use extract_images() to extract images from the document"],
+                "next_steps": [
+                    "Use read_document() with slice_ids to read specific slices",
+                    "Use extract_images() to extract images from the document",
+                ],
             }
             return json.dumps(result_json, ensure_ascii=False, indent=2)
 
@@ -435,7 +527,9 @@ def slice_document(file_path: str, pages_per_slice: int = 5) -> str:
             return f'[{{"error": "不支持分片格式: {ext}"}}]'
 
     except Exception as e:
-        _log.exception(f"  slice_document CRASHED for {file_path}: {traceback.format_exc()}")
+        _log.exception(
+            f"  slice_document CRASHED for {file_path}: {traceback.format_exc()}"
+        )
         return f'[{{"error": "{type(e).__name__}: {e}"}}]'
 
 
@@ -466,6 +560,7 @@ def get_document_info(file_path: str) -> str:
     if ext == ".pdf" or _is_pdf_by_magic(file_path):
         try:
             import fitz
+
             with fitz.open(file_path) as doc:
                 total = len(doc)
                 slices = (total + SLICE_PAGES - 1) // SLICE_PAGES
@@ -476,6 +571,7 @@ def get_document_info(file_path: str) -> str:
     elif ext in (".docx", ".doc"):
         try:
             from docx import Document
+
             doc = Document(file_path)
             blocks = sum(1 for _ in doc.element.body)
             slices = (blocks + SLICE_BLOCKS - 1) // SLICE_BLOCKS
@@ -535,7 +631,9 @@ def list_cache_dir(doc_name: str = None) -> str:
     if doc_name:
         doc_dir = _get_doc_dir(doc_name)
         if not doc_dir.exists():
-            return json.dumps({"error": f"Document {doc_name} not found in cache"}, ensure_ascii=False)
+            return json.dumps(
+                {"error": f"Document {doc_name} not found in cache"}, ensure_ascii=False
+            )
         index = _load_index(doc_name)
         result = {
             "doc_name": doc_name,
@@ -543,9 +641,13 @@ def list_cache_dir(doc_name: str = None) -> str:
             "exists": True,
             "has_slices": (doc_dir / "slices").exists(),
             "has_images": (doc_dir / "images").exists(),
-            "slice_count": len(index.get("pdf_slices", [])) + len(index.get("docx_slices", [])),
+            "slice_count": len(index.get("pdf_slices", []))
+            + len(index.get("docx_slices", [])),
             "image_count": len(index.get("images", [])),
-            "next_steps": ["Use get_cached_content() to read cached content", "Use get_processing_status() to check processing state"],
+            "next_steps": [
+                "Use get_cached_content() to read cached content",
+                "Use get_processing_status() to check processing state",
+            ],
         }
         return json.dumps(result, ensure_ascii=False, indent=2)
     else:
@@ -557,17 +659,23 @@ def list_cache_dir(doc_name: str = None) -> str:
             if not index_path.exists():
                 continue
             index = _load_index(d.name)
-            docs.append({
-                "doc_name": d.name,
-                "path": str(d),
-                "slice_count": len(index.get("pdf_slices", [])) + len(index.get("docx_slices", [])),
-                "image_count": len(index.get("images", [])),
-                "source_file": index.get("source_file", ""),
-            })
+            docs.append(
+                {
+                    "doc_name": d.name,
+                    "path": str(d),
+                    "slice_count": len(index.get("pdf_slices", []))
+                    + len(index.get("docx_slices", [])),
+                    "image_count": len(index.get("images", [])),
+                    "source_file": index.get("source_file", ""),
+                }
+            )
         result = {
             "cached_documents": docs,
             "total": len(docs),
-            "next_steps": ["Use list_cache_dir(doc_name='xxx') for specific document details", "Use get_cached_content() to read cached content"],
+            "next_steps": [
+                "Use list_cache_dir(doc_name='xxx') for specific document details",
+                "Use get_cached_content() to read cached content",
+            ],
         }
         return json.dumps(result, ensure_ascii=False, indent=2)
 
@@ -588,24 +696,32 @@ def delete_cache(doc_name: str) -> str:
     try:
         result = _delete_cache(doc_name)
         if result:
-            return json.dumps({
-                "success": True,
-                "doc_name": doc_name,
-                "message": f"Cache for {doc_name} deleted successfully"
-            }, ensure_ascii=False)
+            return json.dumps(
+                {
+                    "success": True,
+                    "doc_name": doc_name,
+                    "message": f"Cache for {doc_name} deleted successfully",
+                },
+                ensure_ascii=False,
+            )
         else:
-            return json.dumps({
-                "success": False,
-                "doc_name": doc_name,
-                "error": "Document not found in cache"
-            }, ensure_ascii=False)
+            return json.dumps(
+                {
+                    "success": False,
+                    "doc_name": doc_name,
+                    "error": "Document not found in cache",
+                },
+                ensure_ascii=False,
+            )
     except Exception as e:
         _log.exception(f"delete_cache failed for {doc_name}")
         return json.dumps({"success": False, "error": str(e)}, ensure_ascii=False)
 
 
 @mcp.tool()
-def update_document_markdown(img_id: str, ocr_result: str, position_info: dict = None) -> str:
+def update_document_markdown(
+    img_id: str, ocr_result: str, position_info: dict = None
+) -> str:
     """
     更新单张图片的OCR结果到index.json和output.md。
     - img_id: 图片文件名或MD5
@@ -625,17 +741,47 @@ def update_document_markdown(img_id: str, ocr_result: str, position_info: dict =
             if img.get("name") == img_id or img.get("md5") == img_id:
                 doc_name = img_dir.name
                 if _update_image_ocr(doc_name, img_id, ocr_result, position_info or {}):
-                    _rebuild_output_md(doc_name)
-                    return json.dumps({
-                        "updated": True,
-                        "img_id": img_id,
-                        "doc_name": doc_name,
-                        "ocr_result": ocr_result[:100] + "..." if len(ocr_result) > 100 else ocr_result,
-                        "next_steps": ["Use get_cached_content() to read updated document", "Use get_processing_status() to check overall progress"],
-                    }, ensure_ascii=False)
-                return json.dumps({"updated": False, "error": "Failed to update", "next_steps": ["Check if image ID is correct", "Verify document cache exists"]}, ensure_ascii=False)
+                    # _update_image_ocr already calls _rebuild_output_md internally
+                    return json.dumps(
+                        {
+                            "updated": True,
+                            "img_id": img_id,
+                            "doc_name": doc_name,
+                            "ocr_result": (
+                                ocr_result[:100] + "..."
+                                if len(ocr_result) > 100
+                                else ocr_result
+                            ),
+                            "next_steps": [
+                                "Use get_cached_content() to read updated document",
+                                "Use get_processing_status() to check overall progress",
+                            ],
+                        },
+                        ensure_ascii=False,
+                    )
+                return json.dumps(
+                    {
+                        "updated": False,
+                        "error": "Failed to update",
+                        "next_steps": [
+                            "Check if image ID is correct",
+                            "Verify document cache exists",
+                        ],
+                    },
+                    ensure_ascii=False,
+                )
 
-    return json.dumps({"updated": False, "error": f"Image {img_id} not found in any document", "next_steps": ["Verify the image was extracted", "Check if document was processed"]}, ensure_ascii=False)
+    return json.dumps(
+        {
+            "updated": False,
+            "error": f"Image {img_id} not found in any document",
+            "next_steps": [
+                "Verify the image was extracted",
+                "Check if document was processed",
+            ],
+        },
+        ensure_ascii=False,
+    )
 
 
 @mcp.tool()
@@ -681,11 +827,13 @@ def update_batch_document_markdown(updates: list[dict]) -> str:
 
         if doc_name not in updates_by_doc:
             updates_by_doc[doc_name] = []
-        updates_by_doc[doc_name].append({
-            "img_id": img_id,
-            "ocr_result": ocr_result,
-            "position_info": position_info,
-        })
+        updates_by_doc[doc_name].append(
+            {
+                "img_id": img_id,
+                "ocr_result": ocr_result,
+                "position_info": position_info,
+            }
+        )
 
     # Process each doc once: update index, then rebuild
     for doc_name, doc_updates in updates_by_doc.items():
@@ -711,12 +859,19 @@ def update_batch_document_markdown(updates: list[dict]) -> str:
             _unlock_file(lock_fd)
         _rebuild_output_md(doc_name)  # Only ONCE per doc
 
-    return json.dumps({
-        "updated": updated,
-        "remaining": remaining,
-        "failed": failed,
-        "next_steps": ["Use get_cached_content() to read updated documents", "Use get_processing_status() to check overall progress", f"Retry {remaining} failed images individually if needed"],
-    }, ensure_ascii=False)
+    return json.dumps(
+        {
+            "updated": updated,
+            "remaining": remaining,
+            "failed": failed,
+            "next_steps": [
+                "Use get_cached_content() to read updated documents",
+                "Use get_processing_status() to check overall progress",
+                f"Retry {remaining} failed images individually if needed",
+            ],
+        },
+        ensure_ascii=False,
+    )
 
 
 @mcp.tool()
@@ -736,7 +891,9 @@ def get_processing_status(doc_name: str = None, file_path: str = None) -> str:
         doc_name = _make_doc_name(file_path)
 
     if not doc_name:
-        return json.dumps({"error": "doc_name or file_path required"}, ensure_ascii=False)
+        return json.dumps(
+            {"error": "doc_name or file_path required"}, ensure_ascii=False
+        )
 
     def _get_status():
         index = _load_index(doc_name)
@@ -783,15 +940,31 @@ def get_processing_status(doc_name: str = None, file_path: str = None) -> str:
 
         next_steps = []
         if needs_premium_ocr:
-            next_steps.append(f"Use premium OCR for {len(needs_premium_ocr)} images (tesseract failed or skipped)")
+            next_steps.append(
+                f"Use premium OCR for {len(needs_premium_ocr)} images (tesseract failed or skipped)"
+            )
         if informational_only:
-            next_steps.append(f"{len(informational_only)} small/icon images are informational only - safe to ignore")
+            next_steps.append(
+                f"{len(informational_only)} small/icon images are informational only - safe to ignore"
+            )
         if premium_completed:
-            next_steps.append(f"{len(premium_completed)} images already have premium OCR - no action needed")
+            next_steps.append(
+                f"{len(premium_completed)} images already have premium OCR - no action needed"
+            )
         if not next_steps:
-            next_steps.append("All images have tesseract results - document is complete")
+            next_steps.append(
+                "All images have tesseract results - document is complete"
+            )
 
-        slicing_mode = "paired" if index.get("pdf_slices") and index.get("docx_slices") else ("pdf_only" if index.get("pdf_slices") else "docx_only" if index.get("docx_slices") else "single")
+        slicing_mode = (
+            "paired"
+            if index.get("pdf_slices") and index.get("docx_slices")
+            else (
+                "pdf_only"
+                if index.get("pdf_slices")
+                else "docx_only" if index.get("docx_slices") else "single"
+            )
+        )
 
         result = {
             "doc_name": doc_name,
@@ -805,7 +978,9 @@ def get_processing_status(doc_name: str = None, file_path: str = None) -> str:
             "slicing_mode": slicing_mode,
         }
         if slicing_mode == "docx_only":
-            result["diagnostic"] = "PDF images were skipped - check server logs for _extract_images_from_pdf warnings"
+            result["diagnostic"] = (
+                "PDF images were skipped - check server logs for _extract_images_from_pdf warnings"
+            )
         return result
 
     try:
@@ -846,13 +1021,20 @@ def retry_failed_images(doc_name: str) -> str:
     _save_index(doc_name, index)
     _rebuild_output_md(doc_name)
 
-    return json.dumps({
-        "retried": retried,
-        "succeeded": succeeded,
-        "still_failing": len(still_failing),
-        "failed_names": still_failing,
-        "next_steps": ["Use get_cached_content() to read document with OCR results", "Use update_document_markdown() to manually update still-failing images", "Use get_processing_status() to check overall progress"],
-    }, ensure_ascii=False)
+    return json.dumps(
+        {
+            "retried": retried,
+            "succeeded": succeeded,
+            "still_failing": len(still_failing),
+            "failed_names": still_failing,
+            "next_steps": [
+                "Use get_cached_content() to read document with OCR results",
+                "Use update_document_markdown() to manually update still-failing images",
+                "Use get_processing_status() to check overall progress",
+            ],
+        },
+        ensure_ascii=False,
+    )
 
 
 @mcp.tool()
@@ -870,17 +1052,38 @@ def resume_document(file_path: str) -> str:
     doc_name = _make_doc_name(file_path)
     index = _load_index(doc_name)
 
-    if not index.get("images") and not index.get("pdf_slices") and not index.get("docx_slices"):
-        return json.dumps({
-            "error": "No processing history found. Use read_document() first.",
-            "doc_name": doc_name,
-        }, ensure_ascii=False)
+    if (
+        not index.get("images")
+        and not index.get("pdf_slices")
+        and not index.get("docx_slices")
+    ):
+        return json.dumps(
+            {
+                "error": "No processing history found. Use read_document() first.",
+                "doc_name": doc_name,
+            },
+            ensure_ascii=False,
+        )
 
-    pending_imgs = [img for img in index.get("images", []) if img.get("ocr_status") != "completed"]
-    failed_imgs = [img for img in index.get("images", []) if img.get("ocr_status") == "failed"]
-    completed_imgs = [img for img in index.get("images", []) if img.get("ocr_status") == "completed"]
+    pending_imgs = [
+        img for img in index.get("images", []) if img.get("ocr_status") != "completed"
+    ]
+    failed_imgs = [
+        img for img in index.get("images", []) if img.get("ocr_status") == "failed"
+    ]
+    completed_imgs = [
+        img for img in index.get("images", []) if img.get("ocr_status") == "completed"
+    ]
 
-    slicing_mode = "paired" if index.get("pdf_slices") and index.get("docx_slices") else ("pdf_only" if index.get("pdf_slices") else "docx_only" if index.get("docx_slices") else "single")
+    slicing_mode = (
+        "paired"
+        if index.get("pdf_slices") and index.get("docx_slices")
+        else (
+            "pdf_only"
+            if index.get("pdf_slices")
+            else "docx_only" if index.get("docx_slices") else "single"
+        )
+    )
 
     pdf_slices = index.get("pdf_slices", [])
     docx_slices = index.get("docx_slices", [])
@@ -900,7 +1103,11 @@ def resume_document(file_path: str) -> str:
         "pending_images": len(pending_imgs),
         "failed_images": len(failed_imgs),
         "completed_images": len(completed_imgs),
-        "progress": round(len(completed_imgs) / len(index.get("images", [])) * 100, 1) if index.get("images") else 0,
+        "progress": (
+            round(len(completed_imgs) / len(index.get("images", [])) * 100, 1)
+            if index.get("images")
+            else 0
+        ),
         "output_exists": output_exists,
         "output_path": str(output_path) if output_exists else None,
         "pdf_slices": [s["id"] for s in pdf_slices],
@@ -912,7 +1119,9 @@ def resume_document(file_path: str) -> str:
     if pending_imgs:
         result["next_steps"].append(f"Process {len(pending_imgs)} pending images")
     if failed_imgs:
-        result["next_steps"].append(f"Retry {len(failed_imgs)} failed images with retry_failed_images('{doc_name}')")
+        result["next_steps"].append(
+            f"Retry {len(failed_imgs)} failed images with retry_failed_images('{doc_name}')"
+        )
     if not result["next_steps"]:
         result["next_steps"].append("Document processing complete")
 
@@ -937,7 +1146,9 @@ def get_cached_content(doc_name: str, run: str = "latest") -> str:
     else:
         run_dir = doc_dir / "history" / run
         if not run_dir.exists():
-            return json.dumps({"error": f"Run {run} not found for {doc_name}"}, ensure_ascii=False)
+            return json.dumps(
+                {"error": f"Run {run} not found for {doc_name}"}, ensure_ascii=False
+            )
         content_path = run_dir / "output.md"
         index_path = run_dir / "index.json"
         if index_path.exists():
@@ -949,7 +1160,10 @@ def get_cached_content(doc_name: str, run: str = "latest") -> str:
             index = {}
 
     if not content_path.exists():
-        return json.dumps({"error": f"No content found for {doc_name}", "doc_name": doc_name}, ensure_ascii=False)
+        return json.dumps(
+            {"error": f"No content found for {doc_name}", "doc_name": doc_name},
+            ensure_ascii=False,
+        )
 
     try:
         content = content_path.read_text(encoding="utf-8")
@@ -967,7 +1181,10 @@ def get_cached_content(doc_name: str, run: str = "latest") -> str:
             "source_file": index.get("source_file", ""),
             "content_hash": index.get("content_hash", ""),
         },
-        "next_steps": ["Use extract_images() to re-extract images if needed", "Use get_processing_status() to check processing state"],
+        "next_steps": [
+            "Use extract_images() to re-extract images if needed",
+            "Use get_processing_status() to check processing state",
+        ],
     }
     return json.dumps(result, ensure_ascii=False, indent=2)
 
@@ -975,6 +1192,7 @@ def get_cached_content(doc_name: str, run: str = "latest") -> str:
 # ─────────────────────────────────────────────────────────────────
 # Business logic functions
 # ─────────────────────────────────────────────────────────────────
+
 
 def _find_paired_file(path: str) -> Optional[str]:
     """
@@ -1010,10 +1228,14 @@ def _read_slices_direct(
     index 使用 pdf_slices / docx_slices 分开存储（兼容旧 slices 格式）。
     当 index 条目少于实际 slice 文件时，从实际文件读取页码/块范围。
     """
-    _log.debug(f"  _read_slices_direct: doc={doc_name} slices={slice_ids} is_pdf={is_pdf} mem={mem()}MB")
+    _log.debug(
+        f"  _read_slices_direct: doc={doc_name} slices={slice_ids} is_pdf={is_pdf} mem={mem()}MB"
+    )
     slices_dir = _get_slices_dir(doc_name)
 
-    slice_files = sorted(slices_dir.glob("slice_*.docx" if not is_pdf else "slice_*.pdf"))
+    slice_files = sorted(
+        slices_dir.glob("slice_*.docx" if not is_pdf else "slice_*.pdf")
+    )
     index = _load_index(doc_name)
     # 优先使用分类型 index（pdf_slices / docx_slices），兼容旧格式（slices）
     slices_key = "pdf_slices" if is_pdf else "docx_slices"
@@ -1023,6 +1245,7 @@ def _read_slices_direct(
     def _pdf_page_range(pdf_path: str) -> tuple[int, int]:
         """从 PDF slice 文件读取实际页码范围。"""
         import fitz
+
         with fitz.open(pdf_path) as d:
             total = len(d)
             return 1, total  # slice 文件只含连续页，起止页可从文件名推导
@@ -1039,12 +1262,16 @@ def _read_slices_direct(
             if is_pdf:
                 # slice_037.pdf → i=37, pages 186-187 (假设 187 总页)
                 # 先尝试从 index 推断总页数
-                total_pages = stored[0]["total"] if stored else i * SLICE_PAGES + SLICE_PAGES
+                total_pages = (
+                    stored[0]["total"] if stored else i * SLICE_PAGES + SLICE_PAGES
+                )
                 start = i * SLICE_PAGES + 1
                 end = min((i + 1) * SLICE_PAGES, total_pages)
                 id_to_path[f"p{start}-{end}"] = path_str
             else:
-                total_blocks = stored[0]["total"] if stored else i * SLICE_BLOCKS + SLICE_BLOCKS
+                total_blocks = (
+                    stored[0]["total"] if stored else i * SLICE_BLOCKS + SLICE_BLOCKS
+                )
                 start = i * SLICE_BLOCKS + 1
                 end = min((i + 1) * SLICE_BLOCKS, total_blocks)
                 id_to_path[f"b{start}-{end}"] = path_str
@@ -1053,6 +1280,8 @@ def _read_slices_direct(
     text_parts = []
     found_ids = []
     all_images = []
+    first_pdf_slice = True
+    first_docx_slice = True
 
     for sid in slice_ids:
         if sid not in id_to_path:
@@ -1069,9 +1298,21 @@ def _read_slices_direct(
             if is_pdf:
                 slice_idx = path_to_index.get(path, 0)
                 starting_page = slice_idx * SLICE_PAGES + 1
-                imgs, index = _extract_images_from_pdf(path, doc_name, starting_page, force_refresh)
+                # Only force_refresh on first slice; subsequent slices must see
+                # accumulated index so cross-slice MD5 deduplication works.
+                slice_force = force_refresh and first_pdf_slice
+                first_pdf_slice = False
+                imgs, updated_index = _extract_images_from_pdf(
+                    path, doc_name, starting_page, slice_force
+                )
+                _save_index(doc_name, updated_index)  # persist for next slice's dedup
+                all_images.extend(imgs)
             else:
-                imgs, docx_index = _extract_images_from_docx(path, doc_name, force_refresh)
+                slice_force = force_refresh and first_docx_slice
+                first_docx_slice = False
+                imgs, docx_index = _extract_images_from_docx(
+                    path, doc_name, slice_force
+                )
                 for img in imgs:
                     if img.get("rId"):
                         anchor_info = _get_docx_image_anchor(path, img["rId"])
@@ -1081,10 +1322,11 @@ def _read_slices_direct(
                 _save_index(doc_name, docx_index)
 
     full_text = "\n\n".join(text_parts)
-    _log.debug(f"  _read_slices_direct: done, {len(full_text)} chars, {len(found_ids)} slices")
+    _log.debug(
+        f"  _read_slices_direct: done, {len(full_text)} chars, {len(found_ids)} slices"
+    )
 
-    if extract_images and is_pdf:
-        _save_index(doc_name, index)
+    # index already up-to-date on disk (saved after each slice above)
 
     if extract_images:
         seen_paths: set[str] = set()
@@ -1148,9 +1390,17 @@ def _read_single_document(
     mode: "pdf_only" | "docx_only" | "auto"
     callback_url: 可选，事件通知回调地址
     """
-    _log.debug(f"  _read_single: START file={file_path} mode={mode} callback_url={callback_url} mem={mem()}MB")
-    _post_callback(callback_url, "document.started", {"doc_name": doc_name, "file_path": file_path})
-    _post_callback(callback_url, "read_started", {"file_path": file_path, "doc_name": doc_name, "mode": mode})
+    _log.debug(
+        f"  _read_single: START file={file_path} mode={mode} callback_url={callback_url} mem={mem()}MB"
+    )
+    _post_callback(
+        callback_url, "document.started", {"doc_name": doc_name, "file_path": file_path}
+    )
+    _post_callback(
+        callback_url,
+        "read_started",
+        {"file_path": file_path, "doc_name": doc_name, "mode": mode},
+    )
     p = Path(file_path)
     ext = p.suffix.lower()
 
@@ -1164,25 +1414,46 @@ def _read_single_document(
         _log.debug(f"  _read_single: {len(slices)} PDF slices, mem={mem()}MB")
         for i, sl in enumerate(slices):
             if i % 5 == 0:
-                _log.debug(f"  _read_single: PDF slice {i}/{len(slices)}, mem={mem()}MB")
+                _log.debug(
+                    f"  _read_single: PDF slice {i}/{len(slices)}, mem={mem()}MB"
+                )
             txt = _read_pdf_text(sl["path"])
             text_parts.append(f"=== [{sl['id']}] ===\n{txt}")
             if extract_images:
                 starting_page = i * SLICE_PAGES + 1
                 ending_page = starting_page + SLICE_PAGES - 1
-                imgs, index = _extract_images_from_pdf(file_path, doc_name, starting_page, force_refresh, page_range=(starting_page, ending_page))
+                # Only force_refresh on the first slice to preserve cross-slice dedup
+                slice_force = force_refresh and i == 0
+                imgs, index = _extract_images_from_pdf(
+                    file_path,
+                    doc_name,
+                    starting_page,
+                    slice_force,
+                    page_range=(starting_page, ending_page),
+                )
+                _save_index(
+                    doc_name, index
+                )  # persist so next slice sees accumulated hashes
                 all_images.extend(imgs)
 
     elif ext in (".docx", ".doc") or mode == "docx_only":
         slices = _slice_docx(file_path, doc_name)
         _log.debug(f"  _read_single: {len(slices)} DOCX slices, mem={mem()}MB")
+        first_docx_slice = True
         for i, sl in enumerate(slices):
             if i % 5 == 0:
-                _log.debug(f"  _read_single: DOCX slice {i}/{len(slices)}, mem={mem()}MB")
+                _log.debug(
+                    f"  _read_single: DOCX slice {i}/{len(slices)}, mem={mem()}MB"
+                )
             txt = _read_docx_text(sl["path"])
             text_parts.append(f"=== [{sl['id']}] ===\n{txt}")
             if extract_images:
-                imgs, docx_index = _extract_images_from_docx(sl["path"], doc_name, force_refresh)
+                # Only force_refresh on first slice to avoid clearing accumulated results
+                slice_force = force_refresh and first_docx_slice
+                first_docx_slice = False
+                imgs, docx_index = _extract_images_from_docx(
+                    sl["path"], doc_name, slice_force
+                )
                 for img in imgs:
                     if img.get("rId"):
                         anchor_info = _get_docx_image_anchor(sl["path"], img["rId"])
@@ -1195,8 +1466,7 @@ def _read_single_document(
         txt = _read_generic_text(file_path)
         text_parts.append(txt)
 
-    if extract_images and index is not None:
-        _save_index(doc_name, index)
+    # index already up-to-date on disk (saved inside the PDF loop above)
 
     full_text = "\n\n".join(text_parts)
     _log.debug(f"  _read_single: text done, {len(full_text)} chars, mem={mem()}MB")
@@ -1226,7 +1496,9 @@ def _read_single_document(
     content_path = None
     if len(full_text) > 0:
         content_path = _get_doc_dir(doc_name) / "output.md"
-        md_content = _build_unified_md_output(full_text, all_images, doc_name, file_path)
+        md_content = _build_unified_md_output(
+            full_text, all_images, doc_name, file_path
+        )
         content_path.write_text(md_content, encoding="utf-8")
         written = True
 
@@ -1239,13 +1511,17 @@ def _read_single_document(
         progress.append(f"OCR {ocr_n} 张")
 
     _log.debug(f"  _read_single: DONE mem={mem()}MB")
-    _post_callback(callback_url, "document.completed", {
-        "doc_name": doc_name,
-        "chars": len(full_text),
-        "slices": len(slices),
-        "images": len(all_images),
-        "ocr_count": ocr_count,
-    })
+    _post_callback(
+        callback_url,
+        "document.completed",
+        {
+            "doc_name": doc_name,
+            "chars": len(full_text),
+            "slices": len(slices),
+            "images": len(all_images),
+            "ocr_count": ocr_count,
+        },
+    )
     return {
         "text": full_text,
         "images": all_images,
@@ -1259,52 +1535,90 @@ def _read_single_document(
 
 
 def _read_paired_documents(
-    pdf_path: str, docx_path: str, extract_images: bool = True, callback_url: str = "", force_refresh: bool = False
+    pdf_path: str,
+    docx_path: str,
+    extract_images: bool = True,
+    callback_url: str = "",
+    force_refresh: bool = False,
 ) -> dict:
     doc_name = _make_doc_name(pdf_path)
-    _log.debug(f"  _read_paired: START pdf={doc_name} callback_url={callback_url} mem={mem()}MB")
-    _post_callback(callback_url, "document.started", {"doc_name": doc_name, "pdf_path": pdf_path, "docx_path": docx_path})
-    _post_callback(callback_url, "read_started", {"pdf_path": pdf_path, "docx_path": docx_path, "doc_name": doc_name})
+    _log.debug(
+        f"  _read_paired: START pdf={doc_name} callback_url={callback_url} mem={mem()}MB"
+    )
+    _post_callback(
+        callback_url,
+        "document.started",
+        {"doc_name": doc_name, "pdf_path": pdf_path, "docx_path": docx_path},
+    )
+    _post_callback(
+        callback_url,
+        "read_started",
+        {"pdf_path": pdf_path, "docx_path": docx_path, "doc_name": doc_name},
+    )
 
     _log.debug(f"  _read_paired: slicing PDF")
     pdf_slices = _slice_pdf(pdf_path, doc_name, force_refresh=force_refresh)
-    print(f"  _read_paired: PDF sliced into {len(pdf_slices)} slices, mem={resource.getrusage(resource.RUSAGE_SELF).ru_maxrss // 1024}MB", flush=True)
+    print(
+        f"  _read_paired: PDF sliced into {len(pdf_slices)} slices, mem={resource.getrusage(resource.RUSAGE_SELF).ru_maxrss // 1024}MB",
+        flush=True,
+    )
     _log.debug(f"  _read_paired: {len(pdf_slices)} PDF slices, mem={mem()}MB")
 
     all_images = []
-    combined_index = {"images": [], "image_hashes": []}
     if extract_images:
         _log.debug(f"  _read_paired: extracting images from {len(pdf_slices)} slices")
         for i, sl in enumerate(pdf_slices):
             if i % 5 == 0:
-                _log.debug(f"  _read_paired: image slice {i}/{len(pdf_slices)}, mem={mem()}MB")
+                _log.debug(
+                    f"  _read_paired: image slice {i}/{len(pdf_slices)}, mem={mem()}MB"
+                )
             starting_page = i * SLICE_PAGES + 1
             ending_page = starting_page + SLICE_PAGES - 1
-            imgs, index = _extract_images_from_pdf(pdf_path, doc_name, starting_page, force_refresh, page_range=(starting_page, ending_page))
+            # Only force_refresh on the first slice; subsequent slices must see the
+            # accumulated index so cross-slice MD5 deduplication actually works.
+            slice_force = force_refresh and i == 0
+            # Pass starting_page=1 because pdf_path is the FULL PDF (not a slice file).
+            # Inside _extract_images_from_pdf, original_page = starting_page + page_num,
+            # where page_num is 0-based within the opened file.  When the full PDF is
+            # used directly, page_num IS already the 0-based absolute page index, so
+            # starting_page must be 1 to get the correct 1-based page number.
+            # page_range still controls WHICH pages are processed.
+            imgs, updated_index = _extract_images_from_pdf(
+                pdf_path,
+                doc_name,
+                1,
+                slice_force,
+                page_range=(starting_page, ending_page),
+            )
+            # Persist after every slice so the next slice loads the correct seen_hashes
+            _save_index(doc_name, updated_index)
             all_images.extend(imgs)
-            combined_index["images"].extend(index.get("images", []))
-            combined_index["image_hashes"].extend(index.get("image_hashes", []))
-            print(f"  _read_paired: slice {i+1}/{len(pdf_slices)} done: {len(imgs)} imgs, total={len(all_images)}, mem={resource.getrusage(resource.RUSAGE_SELF).ru_maxrss // 1024}MB", flush=True)
+            print(
+                f"  _read_paired: slice {i+1}/{len(pdf_slices)} done: {len(imgs)} imgs, total={len(all_images)}, mem={resource.getrusage(resource.RUSAGE_SELF).ru_maxrss // 1024}MB",
+                flush=True,
+            )
 
     if extract_images and not all_images:
-        _log.warning(f"_read_paired: force_refresh={force_refresh} extracted 0 images from {len(pdf_slices)} slices")
+        _log.warning(
+            f"_read_paired: force_refresh={force_refresh} extracted 0 images from {len(pdf_slices)} slices"
+        )
 
-    if extract_images:
-        # FIX: Load existing index and merge images into it, don't overwrite pdf_slices
-        existing_index = _load_index(doc_name)
-        existing_index["images"] = combined_index.get("images", [])
-        existing_index["image_hashes"] = combined_index.get("image_hashes", [])
-        _save_index(doc_name, existing_index)
+    # index already up-to-date on disk (saved after each slice above)
 
     _log.debug(f"  _read_paired: slicing DOCX")
     docx_slices = _slice_docx(docx_path, doc_name, force_refresh=force_refresh)
-    print(f"  _read_paired: DOCX sliced into {len(docx_slices)} slices, mem={resource.getrusage(resource.RUSAGE_SELF).ru_maxrss // 1024}MB", flush=True)
+    print(
+        f"  _read_paired: DOCX sliced into {len(docx_slices)} slices, mem={resource.getrusage(resource.RUSAGE_SELF).ru_maxrss // 1024}MB",
+        flush=True,
+    )
     _log.debug(f"  _read_paired: {len(docx_slices)} DOCX slices, mem={mem()}MB")
 
     text_parts = []
     for i, sl in enumerate(docx_slices):
         if i % 5 == 0:
-            _log.debug(f"  _read_paired: DOCX slice {i}/{len(docx_slices)}, mem={mem()}MB")
+            _log.debug(
+                f"  _read_paired: DOCX slice {i}/{len(docx_slices)}, mem={mem()}MB"
+            )
         txt = _read_docx_text(sl["path"])
         text_parts.append(f"=== [{sl['id']}] ===\n{txt}")
 
@@ -1323,7 +1637,10 @@ def _read_paired_documents(
         for img in all_images:
             img["is_small"] = _is_small_image(img["path"])
         all_images = [img for img in all_images if not img["is_small"]]
-        print(f"  _read_paired: after dedup: {len(all_images)} unique images, mem={resource.getrusage(resource.RUSAGE_SELF).ru_maxrss // 1024}MB", flush=True)
+        print(
+            f"  _read_paired: after dedup: {len(all_images)} unique images, mem={resource.getrusage(resource.RUSAGE_SELF).ru_maxrss // 1024}MB",
+            flush=True,
+        )
         _log.debug(f"  _read_paired: OCR on {len(all_images)} unique images")
         for img in all_images:
             if img["size"] < IMAGE_SIZE_THRESHOLD:
@@ -1337,7 +1654,10 @@ def _read_paired_documents(
     content_path = None
     if len(full_text) > 0:
         content_path = _get_doc_dir(doc_name) / "output.md"
-        print(f"  _read_paired: about to build MD: {len(all_images)} images, {len(full_text)} text chars, mem={resource.getrusage(resource.RUSAGE_SELF).ru_maxrss // 1024}MB", flush=True)
+        print(
+            f"  _read_paired: about to build MD: {len(all_images)} images, {len(full_text)} text chars, mem={resource.getrusage(resource.RUSAGE_SELF).ru_maxrss // 1024}MB",
+            flush=True,
+        )
         md_content = _build_unified_md_output(full_text, all_images, doc_name, pdf_path)
         content_path.write_text(md_content, encoding="utf-8")
         written = True
@@ -1352,14 +1672,18 @@ def _read_paired_documents(
         progress.append(f"OCR {ocr_n} 张")
 
     _log.debug(f"  _read_paired: DONE mem={mem()}MB")
-    _post_callback(callback_url, "document.completed", {
-        "doc_name": doc_name,
-        "chars": len(full_text),
-        "pdf_slices": len(pdf_slices),
-        "docx_slices": len(docx_slices),
-        "images": len(all_images),
-        "ocr_count": ocr_count,
-    })
+    _post_callback(
+        callback_url,
+        "document.completed",
+        {
+            "doc_name": doc_name,
+            "chars": len(full_text),
+            "pdf_slices": len(pdf_slices),
+            "docx_slices": len(docx_slices),
+            "images": len(all_images),
+            "ocr_count": ocr_count,
+        },
+    )
     return {
         "text": full_text,
         "images": all_images,
@@ -1374,7 +1698,9 @@ def _read_paired_documents(
     }
 
 
-def _build_unified_md_output(text: str, images: list[dict], doc_name: str, doc_path: str = None) -> str:
+def _build_unified_md_output(
+    text: str, images: list[dict], doc_name: str, doc_path: str = None
+) -> str:
     """
     构建统一MD输出，包含图片锚定信息。
     图片按位置插入到文本中，而非仅在末尾追加。
@@ -1383,8 +1709,11 @@ def _build_unified_md_output(text: str, images: list[dict], doc_name: str, doc_p
       Image: OCR result or "see nearby content"
     """
     import re
+
     # 按 page 和 y 坐标排序图片，以便按序插入
-    sorted_images = sorted(images, key=lambda img: (img.get("page", 0), img.get("y", 0)))
+    sorted_images = sorted(
+        images, key=lambda img: (img.get("page", 0), img.get("y", 0))
+    )
 
     # 将文本按页分割（=== [px-y] === 格式标记）
     page_sections = []
@@ -1435,11 +1764,13 @@ def _build_unified_md_output(text: str, images: list[dict], doc_name: str, doc_p
                 anchor_text = ocr_text if ocr_text else img_anchor
                 # Get nearby text as anchor if no OCR or anchor
                 if not anchor_text and section_text:
-                    nearby = section_text.strip()[:50].replace('\n', ' ')
+                    nearby = section_text.strip()[:50].replace("\n", " ")
                     anchor_text = f"Image ({nearby}...)" if nearby else "Image"
                 elif not anchor_text:
                     anchor_text = f"Image on page {img_page}" if img_page else "Image"
-                result_lines.append(f"![]({img_path}){{.positioned {pos_str}}}  {marker}")
+                result_lines.append(
+                    f"![]({img_path}){{.positioned {pos_str}}}  {marker}"
+                )
                 result_lines.append(f"Image: {anchor_text}\n")
             img_idx += 1
 
@@ -1462,11 +1793,7 @@ def _build_unified_md_output(text: str, images: list[dict], doc_name: str, doc_p
         else:
             marker = "← pending_premium_ocr"
         anchor_text = ocr_text if ocr_text else img_anchor
-        # Get nearby text as anchor if no OCR or anchor
-        if not anchor_text and section_text:
-            nearby = section_text.strip()[:50].replace('\n', ' ')
-            anchor_text = f"Image ({nearby}...)" if nearby else "Image"
-        elif not anchor_text:
+        if not anchor_text:
             anchor_text = f"Image on page {page}" if page else "Image"
         result_lines.append(f"![]({img_path}){{.positioned {pos_str}}}  {marker}")
         result_lines.append(f"Image: {anchor_text}\n")
@@ -1475,7 +1802,9 @@ def _build_unified_md_output(text: str, images: list[dict], doc_name: str, doc_p
     return "\n".join(result_lines)
 
 
-def _update_image_ocr(doc_name: str, img_id: str, ocr_result: str, position_info: dict) -> bool:
+def _update_image_ocr(
+    doc_name: str, img_id: str, ocr_result: str, position_info: dict
+) -> bool:
     """更新单张图片的OCR结果到index.json，返回是否成功"""
     lock_path = _get_doc_dir(doc_name) / ".index.lock"
     lock_fd = _lock_file(lock_path)
@@ -1527,7 +1856,7 @@ def _rebuild_output_md(doc_name: str):
         if line.strip().startswith("![]("):
             # This is an image anchor line — extract path
             # Format: ![](/path/to/img.png){.positioned page=N y=Y}
-            m = re.search(r'!\[\]\(([^)]+)\)', line)
+            m = re.search(r"!\[\]\(([^)]+)\)", line)
             if m:
                 current_img_path = m.group(1)
                 # Skip duplicate anchor paths

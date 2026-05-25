@@ -20,6 +20,7 @@ _log = logging.getLogger("markitdown")
 # 辅助：文件锁
 # ─────────────────────────────────────────────────────────────────
 
+
 def _lock_file(lock_path: Path):
     """获取文件锁，用于原子写操作"""
     lock_path.parent.mkdir(parents=True, exist_ok=True)
@@ -38,6 +39,7 @@ def _unlock_file(lock_fd):
 # 文件锁：带超时机制的读写锁
 # ─────────────────────────────────────────────────────────────────
 
+
 def _with_write_lock(doc_name: str, operation, timeout: float = 10.0):
     """
     对文档执行需要排他锁的操作。
@@ -54,7 +56,9 @@ def _with_write_lock(doc_name: str, operation, timeout: float = 10.0):
         except BlockingIOError:
             if time.monotonic() - start >= timeout:
                 lock_fd.close()
-                raise TimeoutError(f"Write lock timeout after {timeout}s for {doc_name}")
+                raise TimeoutError(
+                    f"Write lock timeout after {timeout}s for {doc_name}"
+                )
             time.sleep(0.1)
     try:
         return operation()
@@ -92,6 +96,7 @@ def _with_read_lock(doc_name: str, operation, timeout: float = 10.0):
 # 辅助：持久化目录
 # ─────────────────────────────────────────────────────────────────
 
+
 def _make_doc_name(file_path: str) -> str:
     """
     Generate a unique cache directory name from file path.
@@ -100,6 +105,7 @@ def _make_doc_name(file_path: str) -> str:
     (e.g. docs/GBT34657.pdf vs backup/GBT34657.pdf) from sharing cache.
     """
     import re as re_module
+
     p = Path(file_path)
     stem = re_module.sub(r"[^a-zA-Z0-9_.\-]", "", p.stem.replace(" ", "_"))[:40]
     dir_hash = hashlib.md5(str(p.parent).encode()).hexdigest()[:8]
@@ -123,6 +129,7 @@ def _get_source_dir(doc_name: str) -> Path:
 def _backup_source_file(file_path: str, doc_name: str) -> Path:
     """复制原始文件到 source 目录，返回备份路径"""
     import shutil
+
     src = Path(file_path)
     dst = _get_source_dir(doc_name) / src.name
     shutil.copy2(src, dst)
@@ -135,7 +142,9 @@ def _get_history_dir(doc_name: str) -> Path:
     history_dir = doc_dir / "history"
     history_dir.mkdir(parents=True, exist_ok=True)
     # 查找已有 run 编号
-    existing = [d for d in history_dir.iterdir() if d.is_dir() and d.name.startswith("run_")]
+    existing = [
+        d for d in history_dir.iterdir() if d.is_dir() and d.name.startswith("run_")
+    ]
     run_nums = []
     for d in existing:
         try:
@@ -151,10 +160,11 @@ def _get_history_dir(doc_name: str) -> Path:
 def _move_current_to_history(doc_name: str) -> Optional[Path]:
     """将当前缓存（slices/images/content.md）移动到历史目录，返回历史目录路径"""
     import shutil
+
     doc_dir = _get_doc_dir(doc_name)
     history_run_dir = _get_history_dir(doc_name)
     moved_items = []
-    for item in ["slices", "images", "content.md", "index.json"]:
+    for item in ["slices", "images", "output.md", "index.json"]:
         src = doc_dir / item
         if src.exists():
             dst = history_run_dir / item
@@ -198,7 +208,14 @@ def _load_index(doc_name: str) -> dict:
         data.setdefault("source_file", "")
         data.setdefault("runs", [])
         return data
-    return {"slices": [], "images": [], "ocr_done": [], "content_hash": "", "source_file": "", "runs": []}
+    return {
+        "slices": [],
+        "images": [],
+        "ocr_done": [],
+        "content_hash": "",
+        "source_file": "",
+        "runs": [],
+    }
 
 
 def _save_index(doc_name: str, index: dict):
@@ -220,22 +237,23 @@ def _save_index_nolock(doc_name: str, index: dict):
 def _delete_cache(doc_name: str) -> bool:
     """Delete all cached files for a document. Returns True if deleted, False if not found."""
     import shutil
+
     doc_dir = _get_doc_dir(doc_name)
     if not doc_dir.exists():
         return False
-    
+
     # Recursively delete slices/, images/, output.md, content.md, index.json, and lock files
     for subdir in ["slices", "images"]:
         subpath = doc_dir / subdir
         if subpath.exists():
             shutil.rmtree(subpath)
-    
+
     for fname in ["output.md", "content.md", "index.json"]:
         fpath = doc_dir / fname
         if fpath.exists():
             fpath.unlink()
-    
+
     for lockfile in doc_dir.glob("*.lock"):
         lockfile.unlink()
-    
+
     return True
